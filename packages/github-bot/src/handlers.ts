@@ -77,8 +77,46 @@ async function sendPrompt(
 }
 
 function stripMention(body: string, botUsername: string): string {
-  const escaped = botUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return body.replace(new RegExp(`@${escaped}`, "gi"), "").trim();
+  const aliases = getMentionAliases(botUsername).sort((a, b) => b.length - a.length);
+
+  let stripped = body;
+  for (const alias of aliases) {
+    const escaped = escapeRegExp(alias);
+    stripped = stripped.replace(
+      new RegExp(`(^|[^A-Za-z0-9_-])@${escaped}(?![A-Za-z0-9_-])`, "gi"),
+      "$1"
+    );
+  }
+
+  return stripped.replace(/\s{2,}/g, " ").trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getMentionAliases(botUsername: string): string[] {
+  const normalized = botUsername.trim();
+  if (!normalized) return [];
+
+  const aliases = new Set<string>([normalized]);
+  const lower = normalized.toLowerCase();
+  if (lower.endsWith("[bot]")) {
+    const withoutBotSuffix = normalized.slice(0, -5).trim();
+    if (withoutBotSuffix) aliases.add(withoutBotSuffix);
+  }
+
+  return [...aliases];
+}
+
+function hasBotMention(body: string, botUsername: string): boolean {
+  const aliases = getMentionAliases(botUsername);
+  if (aliases.length === 0) return false;
+
+  return aliases.some((alias) => {
+    const escaped = escapeRegExp(alias);
+    return new RegExp(`(^|[^A-Za-z0-9_-])@${escaped}(?![A-Za-z0-9_-])`, "i").test(body);
+  });
 }
 
 function fireAndForgetReaction(
@@ -354,7 +392,7 @@ export async function handleIssueComment(
     return { outcome: "skipped", skip_reason: "not_a_pr" };
   }
 
-  if (!comment.body.toLowerCase().includes(`@${env.GITHUB_BOT_USERNAME.toLowerCase()}`)) {
+  if (!hasBotMention(comment.body, env.GITHUB_BOT_USERNAME)) {
     log.debug("handler.no_mention", {
       trace_id: traceId,
       issue_number: issue.number,
@@ -449,7 +487,7 @@ export async function handleReviewComment(
   const repoName = repo.name;
   const repoFullName = `${owner}/${repoName}`.toLowerCase();
 
-  if (!comment.body.toLowerCase().includes(`@${env.GITHUB_BOT_USERNAME.toLowerCase()}`)) {
+  if (!hasBotMention(comment.body, env.GITHUB_BOT_USERNAME)) {
     log.debug("handler.no_mention", {
       trace_id: traceId,
       pull_number: pr.number,

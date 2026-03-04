@@ -500,11 +500,15 @@ Your GitHub App's bot username is its slug with `[bot]` appended. You can find i
 Or construct it from your App's slug: if your app is named `My-Inspect-App`, the bot username is
 `my-inspect-app[bot]`. Ensure this matches the `github_bot_username` value in your terraform.tfvars.
 
+> **Mention format note**: In GitHub comments, use `@my-inspect-app` (slug form) when mentioning the
+> bot. Some UIs may not autocomplete or accept the `[bot]` suffix form. Open-Inspect accepts either
+> mention style.
+
 ### Usage
 
 - **Code Review**: Assign the bot as a PR reviewer — it performs an automated review
 - **Comment Actions**: @mention the bot in a PR comment with instructions (e.g.,
-  `@my-app[bot] fix the failing test`)
+  `@my-app fix the failing test`)
 
 ---
 
@@ -746,6 +750,12 @@ If the bot doesn't see the original message when tagged in a thread reply:
 4. Check that `github_bot_username` matches your App's bot login (e.g., `my-app[bot]`)
 5. For PR reviews, ensure the bot is assigned as a reviewer (not just mentioned)
 6. For comment actions, ensure the bot is @mentioned in a **PR** comment (not an issue)
+7. If you use GitHub bot integration settings, verify scope/gating:
+   - Repo scope set to "Selected repositories" must include this repo
+   - If `allowedTriggerUsers` is configured, the commenter must be in that list
+   - If `allowedTriggerUsers` is not configured, the commenter must have write/maintain/admin repo
+     permission
+8. For mentions, prefer `@your-app-slug` if `@your-app-slug[bot]` does not autocomplete
 
 ### Durable Objects / Service Binding errors
 

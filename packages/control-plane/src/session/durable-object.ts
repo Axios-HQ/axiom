@@ -1936,6 +1936,7 @@ export class SessionDO extends DurableObject<Env> {
       body: string;
       baseBranch?: string;
       headBranch?: string;
+      draft?: boolean;
     };
 
     const session = this.getSession();

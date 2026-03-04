@@ -586,7 +586,7 @@ describe("ParticipantService", () => {
       );
     });
 
-    it("returns error when token expired and no refresh token", async () => {
+    it("falls back to app auth when token expired and refresh fails", async () => {
       const participant = createParticipant({
         scm_access_token_encrypted: "enc:encrypted-access",
         scm_refresh_token_encrypted: null,
@@ -595,7 +595,11 @@ describe("ParticipantService", () => {
 
       const result = await harness.service.resolveAuthForPR(participant);
 
-      expect(result).toEqual(expect.objectContaining({ error: expect.any(String), status: 401 }));
+      expect(result).toEqual({ auth: null });
+      expect(harness.log.warn).toHaveBeenCalledWith(
+        "SCM token refresh failed, falling back to app auth for PR creation",
+        expect.any(Object)
+      );
     });
   });
 });

@@ -962,6 +962,7 @@ async function handleCreatePR(
     body: string;
     baseBranch?: string;
     headBranch?: string;
+    draft?: boolean;
   };
 
   if (
@@ -981,6 +982,10 @@ async function handleCreatePR(
     return error("headBranch must be a string");
   }
 
+  if (body.draft != null && typeof body.draft !== "boolean") {
+    return error("draft must be a boolean");
+  }
+
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
@@ -995,6 +1000,7 @@ async function handleCreatePR(
           body: body.body,
           baseBranch: body.baseBranch,
           headBranch: body.headBranch,
+          draft: body.draft,
         }),
       },
       ctx

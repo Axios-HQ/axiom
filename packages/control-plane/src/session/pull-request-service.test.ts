@@ -232,6 +232,19 @@ describe("SessionPullRequestService", () => {
     });
   });
 
+  it("forwards draft flag when creating a PR", async () => {
+    await harness.service.createPullRequest(
+      createInput({
+        promptingAuth: { authType: "oauth", token: "user-token" },
+        draft: true,
+      })
+    );
+
+    const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(createPrCall[1].draft).toBe(true);
+  });
+
   it("ignores prior manual branch artifact and creates PR", async () => {
     harness.artifacts.push({
       id: "branch-artifact-1",

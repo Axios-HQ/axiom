@@ -76,8 +76,8 @@ class FakeD1Database {
       ];
       const existing = this.rows.get(providerUserId);
 
-      // Freshness guard: ON CONFLICT ... WHERE excluded.token_expires_at > user_scm_tokens.token_expires_at
-      if (existing && expiresAt <= existing.token_expires_at) {
+      // Freshness guard: ON CONFLICT ... WHERE excluded.token_expires_at >= user_scm_tokens.token_expires_at
+      if (existing && expiresAt < existing.token_expires_at) {
         return { meta: { changes: 0 } };
       }
 
@@ -193,15 +193,15 @@ describe("UserScmTokenStore", () => {
     expect(result!.expiresAt).toBe(newerExpiresAt);
   });
 
-  it("upsertTokens does not overwrite when equal expiry", async () => {
+  it("upsertTokens overwrites when equal expiry to allow refresh-token rotation", async () => {
     const expiresAt = Date.now() + 3600_000;
 
     await store.upsertTokens("user-123", "first-access", "first-refresh", expiresAt);
     await store.upsertTokens("user-123", "second-access", "second-refresh", expiresAt);
 
     const result = await store.getTokens("user-123");
-    expect(result!.accessToken).toBe("first-access");
-    expect(result!.refreshToken).toBe("first-refresh");
+    expect(result!.accessToken).toBe("second-access");
+    expect(result!.refreshToken).toBe("second-refresh");
   });
 
   it("casUpdateTokens succeeds when refresh token matches", async () => {

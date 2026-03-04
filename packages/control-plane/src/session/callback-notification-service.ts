@@ -41,6 +41,8 @@ export interface CallbackServiceDeps {
 }
 
 export class CallbackNotificationService {
+  private static readonly AGENT_UPDATE_THROTTLE_MS = 3000;
+  private static readonly TOOL_CALL_THROTTLE_MS = 3000;
   private readonly repository: CallbackRepository;
   private readonly env: CallbackServiceEnv;
   private readonly log: Logger;
@@ -251,7 +253,7 @@ export class CallbackNotificationService {
 
   /**
    * Notify the originating client of an agent progress update (best-effort, throttled).
-   * Max 1 callback per 10 seconds per session.
+   * Max 1 callback per 3 seconds per session.
    */
   private _lastAgentUpdateCallbackTs = 0;
 
@@ -260,23 +262,68 @@ export class CallbackNotificationService {
     message: string,
     screenshotUrl?: string
   ): Promise<void> {
-    // Throttle: max 1 per 10 seconds
+    // Throttle: max 1 per 3 seconds
     const now = Date.now();
-    if (now - this._lastAgentUpdateCallbackTs < 10000) return;
+    const elapsedMs = now - this._lastAgentUpdateCallbackTs;
+    if (elapsedMs < CallbackNotificationService.AGENT_UPDATE_THROTTLE_MS) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        outcome: "skipped",
+        skip_reason: "throttled",
+        elapsed_ms: elapsedMs,
+        throttle_ms: CallbackNotificationService.AGENT_UPDATE_THROTTLE_MS,
+        retry_in_ms: CallbackNotificationService.AGENT_UPDATE_THROTTLE_MS - elapsedMs,
+      });
+      return;
+    }
 
     const msgRow = this.repository.getMessageCallbackContext(messageId);
-    if (!msgRow?.callback_context) return;
-    if (!this.env.INTERNAL_CALLBACK_SECRET) return;
+    if (!msgRow?.callback_context) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        outcome: "skipped",
+        skip_reason: "no_callback_context",
+      });
+      return;
+    }
+    if (!this.env.INTERNAL_CALLBACK_SECRET) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        outcome: "skipped",
+        skip_reason: "no_secret",
+      });
+      return;
+    }
 
     const source = msgRow.source ?? null;
     const binding = this.getBinding(source);
-    if (!binding) return;
+    if (!binding) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        source,
+        outcome: "skipped",
+        skip_reason: "no_binding",
+      });
+      return;
+    }
 
     // Update throttle timestamp only after confirming prerequisites
     this._lastAgentUpdateCallbackTs = now;
 
     const sessionId = this.getSessionId();
-    const context = JSON.parse(msgRow.callback_context);
+    let context: unknown;
+    try {
+      context = JSON.parse(msgRow.callback_context);
+    } catch {
+      this.log.warn("callback.agent_update", {
+        message_id: messageId,
+        session_id: sessionId,
+        source,
+        outcome: "error",
+        error_message: "invalid_callback_context",
+      });
+      return;
+    }
 
     const payloadData = {
       sessionId,
@@ -340,7 +387,8 @@ export class CallbackNotificationService {
   ): Promise<void> {
     // Throttle: max 1 per 3 seconds
     const now = Date.now();
-    if (now - this._lastToolCallCallbackTs < 3000) return;
+    if (now - this._lastToolCallCallbackTs < CallbackNotificationService.TOOL_CALL_THROTTLE_MS)
+      return;
     this._lastToolCallCallbackTs = now;
 
     const tool = event.tool ?? "unknown";
