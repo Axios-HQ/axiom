@@ -915,7 +915,7 @@ function SessionContent({
                 </div>
 
                 {/* Right side - Agent label */}
-                <span className="hidden sm:inline text-sm text-muted-foreground">build agent</span>
+                <span className="hidden sm:inline text-sm text-muted-foreground">Axiom</span>
               </div>
             </div>
           </FileUploadZone>
