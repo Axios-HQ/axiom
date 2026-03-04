@@ -486,6 +486,28 @@ describe("handleIssueComment", () => {
     expect(generateInstallationToken).not.toHaveBeenCalled();
   });
 
+  it("accepts @mention without [bot] suffix", async () => {
+    const env = createMockEnv();
+    const log = createMockLogger();
+    const payload: IssueCommentPayload = {
+      ...issueCommentPayload,
+      comment: { ...issueCommentPayload.comment, body: "@test-bot please fix this too" },
+    };
+
+    const result = await handleIssueComment(env, log, payload, "trace-2");
+
+    expect(result).toEqual({
+      outcome: "processed",
+      session_id: "session-123",
+      message_id: "msg-456",
+      handler_action: "comment",
+    });
+    const cpFetch = getControlPlaneFetch(env);
+    const promptBody = JSON.parse(cpFetch.mock.calls[1][1].body);
+    expect(promptBody.content).toContain("please fix this too");
+    expect(promptBody.content).not.toContain("@test-bot ");
+  });
+
   it("returns early if comment is from the bot (loop prevention)", async () => {
     const env = createMockEnv();
     const log = createMockLogger();
@@ -556,6 +578,28 @@ describe("handleReviewComment", () => {
 
     expect(result).toEqual({ outcome: "skipped", skip_reason: "no_mention" });
     expect(generateInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it("accepts review comment @mention without [bot] suffix", async () => {
+    const env = createMockEnv();
+    const log = createMockLogger();
+    const payload: ReviewCommentPayload = {
+      ...reviewCommentPayload,
+      comment: { ...reviewCommentPayload.comment, body: "@test-bot can you fix this?" },
+    };
+
+    const result = await handleReviewComment(env, log, payload, "trace-3");
+
+    expect(result).toEqual({
+      outcome: "processed",
+      session_id: "session-123",
+      message_id: "msg-456",
+      handler_action: "review_comment",
+    });
+    const cpFetch = getControlPlaneFetch(env);
+    const promptBody = JSON.parse(cpFetch.mock.calls[1][1].body);
+    expect(promptBody.content).toContain("can you fix this?");
+    expect(promptBody.content).not.toContain("@test-bot ");
   });
 
   it("returns early if comment is from the bot (loop prevention)", async () => {

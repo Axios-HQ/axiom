@@ -58,12 +58,14 @@ export default tool({
     title: z.string().describe("Title of the pull request. Should be concise and descriptive of the changes made."),
     body: z.string().describe("Body/description of the pull request. Explain what changes were made and why. Use markdown formatting for clarity."),
     baseBranch: z.string().optional().describe("Target branch to merge into. Defaults to the repository's default branch (usually 'main')."),
+    draft: z.boolean().optional().describe("Whether to create the pull request as a draft."),
   },
   async execute(args, context) {
     console.log(`[create-pull-request] execute() called with args:`, JSON.stringify(args))
     const title = args.title || "Changes from OpenCode session"
     const body = args.body || "Automated PR created via create-pull-request tool"
     const baseBranch = args.baseBranch // undefined if not provided, server will use default
+    const draft = args.draft === true
     const headBranch = await getCurrentBranch()
 
     try {
@@ -92,6 +94,7 @@ export default tool({
           body: body,
           baseBranch: baseBranch,
           headBranch: headBranch,
+          draft: draft,
           timestamp: Date.now(),
         }),
       })

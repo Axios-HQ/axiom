@@ -213,6 +213,98 @@ describe("CallbackNotificationService", () => {
     });
   });
 
+  describe("notifyAgentUpdate", () => {
+    it("posts signed update callback with screenshot URL", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123", threadTs: "1234.5678" }),
+        source: "slack",
+      });
+
+      const fetchMock = vi.mocked(
+        (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      );
+      fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await harness.service.notifyAgentUpdate(
+        "msg-1",
+        "UI check completed",
+        "https://example.com/screenshot.png"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://internal/callbacks/update",
+        expect.objectContaining({ method: "POST" })
+      );
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        sessionId: "session-123",
+        messageId: "msg-1",
+        message: "UI check completed",
+        screenshotUrl: "https://example.com/screenshot.png",
+        context: { channel: "C123", threadTs: "1234.5678" },
+      });
+      expect(body.signature).toEqual(expect.any(String));
+      expect(harness.log.info).toHaveBeenCalledWith(
+        "callback.agent_update",
+        expect.objectContaining({
+          message_id: "msg-1",
+          session_id: "session-123",
+          source: "slack",
+          outcome: "success",
+        })
+      );
+    });
+
+    it("logs and skips when throttled", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123", threadTs: "1234.5678" }),
+        source: "slack",
+      });
+
+      const fetchMock = vi.mocked(
+        (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      );
+      fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
+
+      const nowSpy = vi.spyOn(Date, "now");
+      nowSpy.mockReturnValueOnce(1_000_000).mockReturnValueOnce(1_001_000);
+
+      await harness.service.notifyAgentUpdate("msg-1", "first");
+      await harness.service.notifyAgentUpdate("msg-1", "second");
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(harness.log.debug).toHaveBeenCalledWith(
+        "callback.agent_update",
+        expect.objectContaining({
+          message_id: "msg-1",
+          outcome: "skipped",
+          skip_reason: "throttled",
+        })
+      );
+
+      nowSpy.mockRestore();
+    });
+
+    it("logs and skips when callback context is missing", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue(null);
+
+      await harness.service.notifyAgentUpdate("msg-1", "update");
+
+      const fetchMock = (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(harness.log.debug).toHaveBeenCalledWith(
+        "callback.agent_update",
+        expect.objectContaining({
+          message_id: "msg-1",
+          outcome: "skipped",
+          skip_reason: "no_callback_context",
+        })
+      );
+    });
+  });
+
   describe("notifyToolCall", () => {
     it("skips when throttled (< 3s since last call)", async () => {
       vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({

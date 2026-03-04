@@ -18,6 +18,7 @@ export interface CreatePullRequestInput {
   body: string;
   baseBranch?: string;
   headBranch?: string;
+  draft?: boolean;
   promptingUserId: string;
   promptingAuth: SourceControlAuthContext | null;
   sessionUrl: string;
@@ -181,6 +182,7 @@ export class SessionPullRequestService {
         body: fullBody,
         sourceBranch: headBranch,
         targetBranch: baseBranch,
+        draft: input.draft,
       });
 
       const artifactId = this.deps.generateId();
