@@ -263,7 +263,6 @@ export class CallbackNotificationService {
     // Throttle: max 1 per 10 seconds
     const now = Date.now();
     if (now - this._lastAgentUpdateCallbackTs < 10000) return;
-    this._lastAgentUpdateCallbackTs = now;
 
     const msgRow = this.repository.getMessageCallbackContext(messageId);
     if (!msgRow?.callback_context) return;
@@ -272,6 +271,9 @@ export class CallbackNotificationService {
     const source = msgRow.source ?? null;
     const binding = this.getBinding(source);
     if (!binding) return;
+
+    // Update throttle timestamp only after confirming prerequisites
+    this._lastAgentUpdateCallbackTs = now;
 
     const sessionId = this.getSessionId();
     const context = JSON.parse(msgRow.callback_context);

@@ -42,21 +42,30 @@ export default tool({
       return `Failed to read file at ${args.filePath}: ${e.message}`
     }
 
-    const response = await controlPlaneFetch("/api/media/upload", {
-      method: "POST",
-      headers: {
-        "Content-Type": mime,
-        "X-Filename": basename(args.filePath),
-      },
-      body: buffer,
-    })
+    let response
+    try {
+      response = await controlPlaneFetch("/api/media/upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": mime,
+          "X-Filename": basename(args.filePath),
+        },
+        body: buffer,
+      })
+    } catch (e) {
+      return `Upload failed: ${e.message}`
+    }
 
     if (!response.ok) {
       const err = await extractError(response)
       return `Upload failed (${response.status}): ${err}`
     }
 
-    const { url } = await response.json()
-    return `Uploaded: ${url}`
+    try {
+      const { url } = await response.json()
+      return `Uploaded: ${url}`
+    } catch {
+      return "Upload failed: could not parse response"
+    }
   },
 })

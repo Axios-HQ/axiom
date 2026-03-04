@@ -587,7 +587,8 @@ class AgentBridge:
         content = cmd.get("content", "")
         model = cmd.get("model")
         reasoning_effort = cmd.get("reasoningEffort")
-        attachments = cmd.get("attachments")
+        raw_attachments = cmd.get("attachments")
+        attachments = raw_attachments if isinstance(raw_attachments, list) else None
         author_data = cmd.get("author", {})
         start_time = time.time()
         outcome = "success"
@@ -777,13 +778,19 @@ class AgentBridge:
         """
         parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
 
-        if attachments:
+        if isinstance(attachments, list):
             for att in attachments:
+                if not isinstance(att, dict):
+                    continue
                 mime = att.get("mimeType", "application/octet-stream")
                 name = att.get("name", "attachment")
                 url = att.get("url", "")
-                if url:
-                    parts.append({"type": "file", "mime": mime, "url": url, "filename": name})
+                if not isinstance(url, str) or not url:
+                    continue
+                # Only allow http(s) URLs
+                if not url.startswith("https://") and not url.startswith("http://"):
+                    continue
+                parts.append({"type": "file", "mime": mime, "url": url, "filename": name})
 
         request_body: dict[str, Any] = {"parts": parts}
 

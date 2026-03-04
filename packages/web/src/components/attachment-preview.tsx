@@ -32,7 +32,7 @@ export function AttachmentPreview({ attachments, onRemove }: AttachmentPreviewPr
           <button
             type="button"
             onClick={() => onRemove(att.id)}
-            className="ml-1 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            className="ml-1 text-muted-foreground hover:text-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
             aria-label={`Remove ${att.name}`}
           >
             <XIcon className="w-3 h-3" />

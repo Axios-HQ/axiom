@@ -276,9 +276,9 @@ function SessionPageContent() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!prompt.trim() && !fileUpload.hasAttachments) || isProcessing) return;
-
     const uploaded = fileUpload.getUploadedAttachments();
+    const hasUploading = fileUpload.attachments.some((a) => a.uploading);
+    if (isProcessing || hasUploading || (!prompt.trim() && uploaded.length === 0)) return;
     sendPrompt(prompt, selectedModel, reasoningEffort, uploaded.length > 0 ? uploaded : undefined);
     setPrompt("");
     fileUpload.clearAttachments();
@@ -847,14 +847,19 @@ function SessionContent({
                       type="button"
                       onClick={stopExecution}
                       className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
-                      title="Stop"
+                      title="Stop execution"
+                      aria-label="Stop execution"
                     >
                       <StopIcon className="w-5 h-5" />
                     </button>
                   )}
                   <button
                     type="submit"
-                    disabled={(!prompt.trim() && !fileUpload.hasAttachments) || isProcessing}
+                    disabled={
+                      isProcessing ||
+                      fileUpload.attachments.some((a) => a.uploading) ||
+                      (!prompt.trim() && fileUpload.getUploadedAttachments().length === 0)
+                    }
                     className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
                     title={
                       isProcessing && prompt.trim()

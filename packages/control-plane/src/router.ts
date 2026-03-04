@@ -441,10 +441,9 @@ const routes: Route[] = [
   // Repo image builds
   ...repoImageRoutes,
 
-<<<<<<< HEAD
   // Automations
   ...automationRoutes,
-=======
+
   // Media upload/download (R2)
   ...mediaRoutes,
 
@@ -454,7 +453,6 @@ const routes: Route[] = [
     pattern: parsePattern("/sessions/:id/agent-update"),
     handler: handleAgentUpdate,
   },
->>>>>>> 57cc256 (feat: R2 media storage, agent tools, and progress updates)
 ];
 
 /**
@@ -515,6 +513,9 @@ export async function handleRequest(
             // Both HMAC and sandbox auth failed
             return withCorsAndTraceHeaders(sandboxAuthError, ctx);
           }
+        } else {
+          // Sandbox route without session ID in path — fail closed
+          return withCorsAndTraceHeaders(hmacAuthError, ctx);
         }
       } else {
         // Not a sandbox auth route, return HMAC auth error

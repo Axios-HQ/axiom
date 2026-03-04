@@ -667,10 +667,27 @@ async function uploadSlackFiles(
     if (file.size > MAX_FILE_SIZE) continue;
 
     try {
-      // Download from Slack
+      // Validate URL is from Slack before downloading
+      let downloadUrl: URL;
+      try {
+        downloadUrl = new URL(file.url_private_download);
+      } catch {
+        log.warn("slack.file.invalid_url", { file_id: file.id, url: file.url_private_download });
+        continue;
+      }
+      if (!downloadUrl.hostname.endsWith(".slack.com")) {
+        log.warn("slack.file.non_slack_url", { file_id: file.id, hostname: downloadUrl.hostname });
+        continue;
+      }
+
+      // Download from Slack with timeout
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
       const resp = await fetch(file.url_private_download, {
         headers: { Authorization: `Bearer ${env.SLACK_BOT_TOKEN}` },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (!resp.ok) continue;
       const buf = await resp.arrayBuffer();
 
@@ -1095,6 +1112,7 @@ async function handleSlackMessage(
       JSON.stringify({
         message: messageText,
         userId: event.user,
+        attachments,
         previousMessages,
         channelName,
         channelDescription,
@@ -1256,12 +1274,14 @@ async function handleRepoSelection(
   const {
     message: messageText,
     userId,
+    attachments,
     previousMessages,
     channelName,
     channelDescription,
   } = pendingData as {
     message: string;
     userId: string;
+    attachments?: Attachment[];
     previousMessages?: string[];
     channelName?: string;
     channelDescription?: string;
@@ -1299,7 +1319,8 @@ async function handleRepoSelection(
     previousMessages,
     channelName,
     channelDescription,
-    traceId
+    traceId,
+    attachments
   );
 
   if (!sessionResult) {

@@ -14,6 +14,17 @@ const logger = createLogger("router:media");
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 
+const ALLOWED_UPLOAD_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "application/pdf",
+  "text/plain",
+  "application/json",
+]);
+
 function getMediaService(env: Env): R2MediaService | null {
   if (!env.MEDIA_BUCKET) return null;
   return new R2MediaService(env.MEDIA_BUCKET);
@@ -33,6 +44,12 @@ async function handleUpload(
   const contentType = request.headers.get("content-type") ?? "application/octet-stream";
   const filename = request.headers.get("x-filename") ?? "upload";
   const sessionId = request.headers.get("x-session-id");
+
+  // Enforce MIME allowlist
+  const baseMime = contentType.split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_UPLOAD_TYPES.has(baseMime)) {
+    return error(`Unsupported content type: ${baseMime}`, 415);
+  }
 
   const contentLength = request.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_UPLOAD_SIZE) {
@@ -81,7 +98,18 @@ async function handleDownload(
     return error("Missing key", 400);
   }
 
-  const decodedKey = decodeURIComponent(key);
+  let decodedKey: string;
+  try {
+    decodedKey = decodeURIComponent(key);
+  } catch {
+    return error("Invalid key encoding", 400);
+  }
+
+  // Reject path traversal and absolute paths
+  if (decodedKey.includes("..") || decodedKey.startsWith("/")) {
+    return error("Invalid key", 400);
+  }
+
   const result = await media.get(decodedKey);
   if (!result) {
     return error("Not found", 404);

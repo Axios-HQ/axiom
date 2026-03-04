@@ -152,15 +152,33 @@ callbacksRouter.post("/complete", async (c) => {
 /**
  * Callback endpoint for agent progress update notifications.
  */
-callbacksRouter.post("/update", async (c) => {
-  const payload = (await c.req.json()) as UpdateCallback;
-
+function isValidUpdatePayload(payload: unknown): payload is UpdateCallback {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
   if (
-    !payload.context?.channel ||
-    !payload.context?.threadTs ||
-    !payload.message ||
-    !payload.signature
-  ) {
+    typeof p.sessionId !== "string" ||
+    typeof p.messageId !== "string" ||
+    typeof p.message !== "string" ||
+    typeof p.timestamp !== "number" ||
+    typeof p.signature !== "string"
+  )
+    return false;
+  if (
+    p.screenshotUrl !== null &&
+    p.screenshotUrl !== undefined &&
+    typeof p.screenshotUrl !== "string"
+  )
+    return false;
+  const ctx = p.context;
+  if (!ctx || typeof ctx !== "object") return false;
+  const c2 = ctx as Record<string, unknown>;
+  return typeof c2.channel === "string" && typeof c2.threadTs === "string";
+}
+
+callbacksRouter.post("/update", async (c) => {
+  const payload = await c.req.json();
+
+  if (!isValidUpdatePayload(payload)) {
     return c.json({ error: "invalid payload" }, 400);
   }
 

@@ -89,6 +89,7 @@ const VALID_EVENT_TYPES = [
   "push_complete",
   "push_error",
   "user_message",
+  "agent_update",
 ] as const;
 
 /**
@@ -1739,15 +1740,41 @@ export class SessionDO extends DurableObject<Env> {
   }
 
   private async handleAgentUpdate(request: Request): Promise<Response> {
-    const body = (await request.json()) as { message: string; screenshotUrl?: string };
+    const body = (await request.json()) as Record<string, unknown>;
+
+    // Validate message field
+    if (typeof body.message !== "string" || body.message.trim().length === 0) {
+      return Response.json({ error: "message is required" }, { status: 400 });
+    }
+    if (body.message.length > 5000) {
+      return Response.json({ error: "message too long (max 5000 chars)" }, { status: 400 });
+    }
+
+    // Validate optional screenshotUrl
+    if (body.screenshotUrl !== undefined && body.screenshotUrl !== null) {
+      if (typeof body.screenshotUrl !== "string") {
+        return Response.json({ error: "screenshotUrl must be a string" }, { status: 400 });
+      }
+      try {
+        const url = new URL(body.screenshotUrl);
+        if (url.protocol !== "https:") {
+          return Response.json({ error: "screenshotUrl must be HTTPS" }, { status: 400 });
+        }
+      } catch {
+        return Response.json({ error: "screenshotUrl must be a valid URL" }, { status: 400 });
+      }
+    }
+
+    const message = body.message;
+    const screenshotUrl = typeof body.screenshotUrl === "string" ? body.screenshotUrl : undefined;
     const now = Date.now();
     const sandbox = this.repository.getSandbox();
     const sandboxId = sandbox?.modal_sandbox_id ?? "unknown";
 
     const event: SandboxEvent = {
       type: "agent_update",
-      message: body.message,
-      screenshotUrl: body.screenshotUrl,
+      message,
+      screenshotUrl,
       sandboxId,
       timestamp: now,
     };
@@ -1770,14 +1797,12 @@ export class SessionDO extends DurableObject<Env> {
     // Forward to callback service (Slack/Linear)
     if (messageId) {
       this.ctx.waitUntil(
-        this.callbackService
-          .notifyAgentUpdate(messageId, body.message, body.screenshotUrl)
-          .catch((err) => {
-            this.log.error("callback.agent_update.error", {
-              message_id: messageId,
-              error: err instanceof Error ? err : String(err),
-            });
-          })
+        this.callbackService.notifyAgentUpdate(messageId, message, screenshotUrl).catch((err) => {
+          this.log.error("callback.agent_update.error", {
+            message_id: messageId,
+            error: err instanceof Error ? err : String(err),
+          });
+        })
       );
     }
 

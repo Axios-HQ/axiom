@@ -22,6 +22,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.arrayBuffer();
+    if (body.byteLength > MAX_UPLOAD_SIZE) {
+      return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 413 });
+    }
 
     const response = await controlPlaneFetch("/api/media/upload", {
       method: "POST",

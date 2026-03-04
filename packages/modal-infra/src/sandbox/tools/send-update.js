@@ -30,31 +30,45 @@ export default tool({
         return `Failed to read screenshot at ${args.screenshotPath}: ${e.message}`
       }
 
-      const uploadResp = await controlPlaneFetch("/api/media/upload", {
-        method: "POST",
-        headers: {
-          "Content-Type": "image/png",
-          "X-Filename": "screenshot.png",
-        },
-        body: buffer,
-      })
+      let uploadResp
+      try {
+        uploadResp = await controlPlaneFetch("/api/media/upload", {
+          method: "POST",
+          headers: {
+            "Content-Type": "image/png",
+            "X-Filename": "screenshot.png",
+          },
+          body: buffer,
+        })
+      } catch (e) {
+        return `Screenshot upload failed: ${e.message}`
+      }
 
       if (!uploadResp.ok) {
         const err = await extractError(uploadResp)
         return `Screenshot upload failed (${uploadResp.status}): ${err}`
       }
 
-      const { url } = await uploadResp.json()
-      screenshotUrl = url
+      try {
+        const { url } = await uploadResp.json()
+        screenshotUrl = url
+      } catch {
+        return "Screenshot upload failed: could not parse response"
+      }
     }
 
-    const response = await bridgeFetch("/agent-update", {
-      method: "POST",
-      body: JSON.stringify({
-        message: args.message,
-        screenshotUrl,
-      }),
-    })
+    let response
+    try {
+      response = await bridgeFetch("/agent-update", {
+        method: "POST",
+        body: JSON.stringify({
+          message: args.message,
+          screenshotUrl,
+        }),
+      })
+    } catch (e) {
+      return `Failed to send update: ${e.message}`
+    }
 
     if (!response.ok) {
       const err = await extractError(response)

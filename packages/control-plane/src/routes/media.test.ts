@@ -37,7 +37,11 @@ function createMockEnv(overrides?: Partial<Env>): Env {
 }
 
 function createCtx(): RequestContext {
-  return { request_id: "test-req-1", metrics: {} as RequestContext["metrics"] };
+  return {
+    request_id: "test-req-1",
+    trace_id: "test-trace-1",
+    metrics: {} as RequestContext["metrics"],
+  };
 }
 
 function findRoute(method: string, path: string) {

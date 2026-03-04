@@ -248,10 +248,27 @@ callbacksRouter.post("/tool_call", async (c) => {
 
 // ─── Agent Update Callback ───────────────────────────────────────────────────
 
-callbacksRouter.post("/update", async (c) => {
-  const payload = (await c.req.json()) as UpdateCallback;
+export function isValidUpdatePayload(payload: unknown): payload is UpdateCallback {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  return (
+    typeof p.sessionId === "string" &&
+    typeof p.messageId === "string" &&
+    typeof p.message === "string" &&
+    (p.screenshotUrl === null ||
+      p.screenshotUrl === undefined ||
+      typeof p.screenshotUrl === "string") &&
+    typeof p.timestamp === "number" &&
+    typeof p.signature === "string" &&
+    p.context !== null &&
+    typeof p.context === "object"
+  );
+}
 
-  if (!payload.context?.issueId || !payload.message || !payload.signature) {
+callbacksRouter.post("/update", async (c) => {
+  const payload = await c.req.json();
+
+  if (!isValidUpdatePayload(payload)) {
     return c.json({ error: "invalid payload" }, 400);
   }
 
