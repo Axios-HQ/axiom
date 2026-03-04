@@ -236,6 +236,7 @@ async function handleNewSession(
   let repoName: string | null = null;
   let repoFullName: string | null = null;
   let classificationReasoning: string | null = null;
+  let classificationPath: string | null = null;
 
   // 1. Check project→repo mapping FIRST
   if (projectInfo?.id) {
@@ -246,6 +247,7 @@ async function handleNewSession(
       repoName = mapped.name;
       repoFullName = `${mapped.owner}/${mapped.name}`;
       classificationReasoning = `Project "${projectInfo.name}" is mapped to ${repoFullName}`;
+      classificationPath = "project_mapping";
     }
   }
 
@@ -260,6 +262,7 @@ async function handleNewSession(
         repoName = staticRepo.name;
         repoFullName = `${staticRepo.owner}/${staticRepo.name}`;
         classificationReasoning = `Team static mapping`;
+        classificationPath = "team_mapping";
       }
     }
   }
@@ -281,6 +284,7 @@ async function handleNewSession(
         repoName = name;
         repoFullName = topSuggestion.repositoryFullName;
         classificationReasoning = `Linear suggested ${repoFullName} (confidence: ${Math.round(topSuggestion.confidence * 100)}%)`;
+        classificationPath = "linear_suggestions";
       }
     }
   }
@@ -316,11 +320,13 @@ async function handleNewSession(
         body: `I couldn't determine which repository to work on.\n\n${classification.reasoning}\n\n**Available repositories:**\n${altList || "None available"}\n\nPlease reply with the repository name, or configure a project→repo mapping.`,
       });
 
-      log.warn("agent_session.classification_uncertain", {
+      log.warn("agent_session.repo_classification_uncertain", {
         trace_id: traceId,
         issue_identifier: issue.identifier,
+        classification_path: "llm_fallback",
         confidence: classification.confidence,
         reasoning: classification.reasoning,
+        alternatives: (classification.alternatives || []).map((r) => r.fullName),
       });
       return;
     }
@@ -329,6 +335,7 @@ async function handleNewSession(
     repoName = classification.repo.name;
     repoFullName = classification.repo.fullName;
     classificationReasoning = classification.reasoning;
+    classificationPath = "llm_fallback";
   }
 
   if (!repoOwner || !repoName || !repoFullName) {
@@ -519,6 +526,7 @@ async function handleNewSession(
     issue_identifier: issue.identifier,
     repo: repoFullName,
     model,
+    classification_path: classificationPath,
     classification_reasoning: classificationReasoning,
     duration_ms: Date.now() - startTime,
   });

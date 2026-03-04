@@ -10,13 +10,13 @@ joining across service boundaries.
 
 Every log line includes:
 
-| Field       | Type   | Description                                      |
-| ----------- | ------ | ------------------------------------------------ |
-| `level`     | string | `debug` \| `info` \| `warn` \| `error`           |
-| `service`   | string | `control-plane` \| `modal-infra` \| `slack-bot`  |
-| `component` | string | Sub-area (e.g. `router`, `session-do`, `bridge`) |
-| `msg`       | string | Stable event identifier for querying             |
-| `ts`        | number | Epoch milliseconds                               |
+| Field       | Type   | Description                                                     |
+| ----------- | ------ | --------------------------------------------------------------- |
+| `level`     | string | `debug` \| `info` \| `warn` \| `error`                          |
+| `service`   | string | `control-plane` \| `modal-infra` \| `slack-bot` \| `linear-bot` |
+| `component` | string | Sub-area (e.g. `router`, `session-do`, `bridge`)                |
+| `msg`       | string | Stable event identifier for querying                            |
+| `ts`        | number | Epoch milliseconds                                              |
 
 ## Correlation Fields
 
@@ -212,9 +212,45 @@ Wide events use `outcome` to indicate result:
 
 #### Classifier (`component: "classifier"`)
 
-| Event                 | Level | Key Fields                                    | Description               |
-| --------------------- | ----- | --------------------------------------------- | ------------------------- |
-| `classifier.classify` | error | `trace_id`, `method`, `channel_id`, `outcome` | LLM classification failed |
+| Event                 | Level | Key Fields                                                                                                              | Description                           |
+| --------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `classifier.classify` | info  | `trace_id`, `method`, `outcome`, `repo`, `confidence`, `reasoning`, `alternatives`, `needs_clarification`, `channel_id` | Classification completed (any method) |
+| `classifier.classify` | warn  | `trace_id`, `method="shortcut"`, `outcome="no_repos"`, `repo_count`                                                     | No repos available                    |
+| `classifier.classify` | error | `trace_id`, `method`, `outcome="error"`, `channel_id`                                                                   | LLM classification failed             |
+
+---
+
+### Linear Bot (`service: "linear-bot"`)
+
+#### Handler (`component: "handler"`)
+
+| Event                                         | Level | Key Fields                                                                                                                                          | Description                                     |
+| --------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `agent_session.received`                      | info  | `trace_id`, `action`, `agent_session_id`, `issue_id`, `issue_identifier`, `has_comment`, `org_id`                                                   | Webhook received                                |
+| `agent_session.session_created`               | info  | `trace_id`, `session_id`, `agent_session_id`, `issue_identifier`, `repo`, `model`, `classification_path`, `classification_reasoning`, `duration_ms` | Session created and prompt sent                 |
+| `agent_session.repo_classification_uncertain` | warn  | `trace_id`, `issue_identifier`, `classification_path="llm_fallback"`, `confidence`, `reasoning`, `alternatives`                                     | LLM could not resolve repo; elicitation emitted |
+| `agent_session.repo_resolution_failed`        | warn  | `trace_id`, `issue_identifier`                                                                                                                      | No path resolved a repo                         |
+| `agent_session.followup`                      | info  | `trace_id`, `issue_identifier`, `session_id`, `agent_session_id`, `duration_ms`                                                                     | Follow-up prompt sent to existing session       |
+| `agent_session.stopped`                       | info  | `trace_id`, `action`, `agent_session_id`, `session_id`, `stop_status`, `duration_ms`                                                                | Session stopped via webhook                     |
+| `agent_session.no_oauth_token`                | error | `trace_id`, `org_id`, `agent_session_id`                                                                                                            | No OAuth token for org                          |
+| `agent_session.no_issue`                      | warn  | `trace_id`, `agent_session_id`                                                                                                                      | Webhook has no issue attached                   |
+
+#### Classifier (`component: "classifier"`)
+
+| Event                 | Level | Key Fields                                                                                                                                                       | Description               |
+| --------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `classifier.classify` | info  | `trace_id`, `method`, `outcome`, `repo`, `confidence`, `reasoning`, `alternatives`, `needs_clarification`, `issue_title`, `labels`, `project_name`, `repo_count` | Classification completed  |
+| `classifier.classify` | warn  | `trace_id`, `method="shortcut"`, `outcome="no_repos"`, `repo_count`                                                                                              | No repos available        |
+| `classifier.classify` | error | `trace_id`, `method`, `outcome="error"`, `issue_title`, `labels`, `project_name`, `repo_count`                                                                   | LLM classification failed |
+
+`classification_path` values on `agent_session.session_created`:
+
+| Value                | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `project_mapping`    | Resolved via KV project→repo config                                       |
+| `team_mapping`       | Resolved via KV team→repo config (with optional label filter)             |
+| `linear_suggestions` | Resolved via Linear's `issueRepositorySuggestions` API (≥ 0.7 confidence) |
+| `llm_fallback`       | Resolved via Anthropic LLM classification                                 |
 
 ---
 
@@ -297,6 +333,46 @@ service="control-plane" msg="sandbox.restore" session_id="<SESSION_ID>"
 # Modal side
 service="modal-infra" msg="sandbox.restore" outcome="error"
 ```
+
+### "Linear issue started a session in the wrong repo"
+
+Trace repo selection from the Linear bot through to session creation.
+
+```
+# 1. Did the linear-bot receive and process the webhook?
+service="linear-bot" msg="agent_session.received" issue_identifier="<ISSUE_ID>"
+
+# 2. Which path resolved the repo?
+service="linear-bot" msg="agent_session.session_created" issue_identifier="<ISSUE_ID>"
+# Check: classification_path ("project_mapping" | "team_mapping" | "linear_suggestions" | "llm_fallback")
+# Check: repo, classification_reasoning
+
+# 3. If path was "llm_fallback", inspect the classifier decision:
+service="linear-bot" msg="classifier.classify" trace_id="<TRACE_ID>"
+# Check: method, confidence, reasoning, alternatives, needs_clarification
+
+# 4. Was clarification requested (session not created)?
+service="linear-bot" msg="agent_session.repo_classification_uncertain" trace_id="<TRACE_ID>"
+# Check: confidence, reasoning, alternatives
+```
+
+**Common causes of wrong-repo selection:**
+
+- No `project→repo` or `team→repo` mapping configured — falls through to LLM or Linear suggestions.
+  Fix: add an explicit mapping via the config endpoint.
+- LLM returns `confidence: "medium"` with no alternatives — session proceeds without clarification.
+  Check `reasoning` field to understand why the model chose that repo.
+- Linear's `issueRepositorySuggestions` API returns a high-confidence suggestion for the wrong repo.
+  This overrides LLM classification. Verify the Linear integration metadata for that repo.
+
+**Fix wrong-repo mappings:**
+
+```
+# Set project→repo mapping (POST /config/project-repos)
+# Set team→repo mapping (POST /config/team-repos)
+```
+
+After adding a mapping, the next triggered session will use the explicit path instead of LLM.
 
 ### "Slack message isn't getting a response"
 
