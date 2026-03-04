@@ -79,6 +79,25 @@ class TestOpenaiOauthSetup:
 
         assert not _auth_file(tmp_path).exists()
 
+    def test_skips_oauth_when_api_key_present(self, tmp_path):
+        """API key takes precedence — no auth.json should be written."""
+        sup = _make_supervisor()
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "sk-test-key",
+                    "OPENAI_OAUTH_REFRESH_TOKEN": "rt_abc123",
+                },
+                clear=False,
+            ),
+            patch("pathlib.Path.home", return_value=tmp_path),
+        ):
+            sup._setup_openai_oauth()
+
+        assert not _auth_file(tmp_path).exists()
+
     def test_sets_secure_permissions(self, tmp_path):
         sup = _make_supervisor()
 
