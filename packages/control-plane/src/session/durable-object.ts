@@ -89,6 +89,7 @@ const VALID_EVENT_TYPES = [
   "push_complete",
   "push_error",
   "user_message",
+  "agent_update",
 ] as const;
 
 /**
@@ -194,6 +195,11 @@ export class SessionDO extends DurableObject<Env> {
       method: "POST",
       path: "/internal/child-session-update",
       handler: (req) => this.handleChildSessionUpdate(req),
+    },
+    {
+      method: "POST",
+      path: "/internal/agent-update",
+      handler: (req) => this.handleAgentUpdate(req),
     },
   ];
 
@@ -1730,6 +1736,76 @@ export class SessionDO extends DurableObject<Env> {
   private async handleSandboxEvent(request: Request): Promise<Response> {
     const event = (await request.json()) as SandboxEvent;
     await this.processSandboxEvent(event);
+    return Response.json({ status: "ok" });
+  }
+
+  private async handleAgentUpdate(request: Request): Promise<Response> {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    // Validate message field
+    if (typeof body.message !== "string" || body.message.trim().length === 0) {
+      return Response.json({ error: "message is required" }, { status: 400 });
+    }
+    if (body.message.length > 5000) {
+      return Response.json({ error: "message too long (max 5000 chars)" }, { status: 400 });
+    }
+
+    // Validate optional screenshotUrl
+    if (body.screenshotUrl !== undefined && body.screenshotUrl !== null) {
+      if (typeof body.screenshotUrl !== "string") {
+        return Response.json({ error: "screenshotUrl must be a string" }, { status: 400 });
+      }
+      try {
+        const url = new URL(body.screenshotUrl);
+        if (url.protocol !== "https:") {
+          return Response.json({ error: "screenshotUrl must be HTTPS" }, { status: 400 });
+        }
+      } catch {
+        return Response.json({ error: "screenshotUrl must be a valid URL" }, { status: 400 });
+      }
+    }
+
+    const message = body.message;
+    const screenshotUrl = typeof body.screenshotUrl === "string" ? body.screenshotUrl : undefined;
+    const now = Date.now();
+    const sandbox = this.repository.getSandbox();
+    const sandboxId = sandbox?.modal_sandbox_id ?? "unknown";
+
+    const event: SandboxEvent = {
+      type: "agent_update",
+      message,
+      screenshotUrl,
+      sandboxId,
+      timestamp: now,
+    };
+
+    // Store the event
+    const eventId = generateId();
+    const processingMessage = this.repository.getProcessingMessage();
+    const messageId = processingMessage?.id ?? null;
+    this.repository.createEvent({
+      id: eventId,
+      type: "agent_update",
+      data: JSON.stringify(event),
+      messageId,
+      createdAt: now,
+    });
+
+    // Broadcast to WebSocket clients
+    this.broadcast({ type: "sandbox_event", event });
+
+    // Forward to callback service (Slack/Linear)
+    if (messageId) {
+      this.ctx.waitUntil(
+        this.callbackService.notifyAgentUpdate(messageId, message, screenshotUrl).catch((err) => {
+          this.log.error("callback.agent_update.error", {
+            message_id: messageId,
+            error: err instanceof Error ? err : String(err),
+          });
+        })
+      );
+    }
+
     return Response.json({ status: "ok" });
   }
 

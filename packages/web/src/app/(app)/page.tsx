@@ -366,7 +366,8 @@ function HomeContent({
         <div className="w-full max-w-2xl">
           {/* Welcome text */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Open-Inspect</h1>
+            <img src="/axiom-logo.png" alt="Axiom" className="h-14 mx-auto mb-4" />
+            <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Axiom</h1>
             {isAuthenticated ? (
               <p className="text-muted-foreground">
                 Ask a question or describe what you want to build
@@ -509,9 +510,7 @@ function HomeContent({
                   </div>
 
                   {/* Right side - Agent label */}
-                  <span className="hidden sm:inline text-sm text-muted-foreground">
-                    build agent
-                  </span>
+                  <span className="hidden sm:inline text-sm text-muted-foreground">Axiom</span>
                 </div>
               </div>
 

@@ -38,6 +38,7 @@ import { reposRoutes } from "./routes/repos";
 import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
+import { mediaRoutes } from "./routes/media";
 
 const logger = createLogger("router");
 
@@ -98,7 +99,7 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
 /**
  * Routes that do not require authentication.
  */
-const PUBLIC_ROUTES: RegExp[] = [/^\/health$/];
+const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
 
 /**
  * Routes that accept sandbox authentication.
@@ -111,6 +112,8 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
+  /^\/api\/media\/upload$/, // Media upload from sandbox
+  /^\/sessions\/[^/]+\/agent-update$/, // Agent progress updates
 ];
 
 type CachedScmProvider =
@@ -440,6 +443,16 @@ const routes: Route[] = [
 
   // Automations
   ...automationRoutes,
+
+  // Media upload/download (R2)
+  ...mediaRoutes,
+
+  // Agent progress updates (sandbox-authenticated)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/agent-update"),
+    handler: handleAgentUpdate,
+  },
 ];
 
 /**
@@ -500,6 +513,9 @@ export async function handleRequest(
             // Both HMAC and sandbox auth failed
             return withCorsAndTraceHeaders(sandboxAuthError, ctx);
           }
+        } else {
+          // Sandbox route without session ID in path — fail closed
+          return withCorsAndTraceHeaders(hmacAuthError, ctx);
         }
       } else {
         // Not a sandbox auth route, return HMAC auth error
@@ -1443,6 +1459,28 @@ async function handleGetChild(
   );
 
   return response;
+}
+
+async function handleAgentUpdate(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSessionStub(env, match);
+  if (!stub) return error("Session ID required");
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/agent-update",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
 }
 
 async function handleCancelChild(

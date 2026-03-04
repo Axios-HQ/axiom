@@ -61,13 +61,14 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
   if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-8">
-        <h1 className="text-4xl font-bold text-foreground">Open-Inspect</h1>
-        <p className="text-muted-foreground max-w-md text-center">
-          Background coding agent for your team. Ship faster with AI-powered code changes.
-        </p>
+        <img src="/axiom-logo.png" alt="Axiom" className="h-16" />
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-foreground mb-2">Axiom</h1>
+          <p className="text-muted-foreground max-w-md">Background coding agent for Axios HQ</p>
+        </div>
         <button
           onClick={() => signIn("github")}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 font-medium hover:opacity-90 transition"
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded font-medium hover:opacity-90 transition"
         >
           <GitHubIcon className="w-5 h-5" />
           Sign in with GitHub

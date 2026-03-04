@@ -68,6 +68,8 @@ export interface SlackEvent {
     ts?: string;
     thread_ts?: string;
     bot_id?: string;
+    subtype?: string;
+    channel_type?: string;
   };
   event_id: string;
   event_time: number;
@@ -85,11 +87,21 @@ export interface SlackMessageEvent {
   ts: string;
   thread_ts?: string;
   bot_id?: string;
+  subtype?: string;
+  channel_type?: string;
 }
 
 /**
  * Slack app_mention event.
  */
+export interface SlackFile {
+  id: string;
+  name: string;
+  mimetype: string;
+  url_private_download: string;
+  size: number;
+}
+
 export interface SlackAppMentionEvent {
   type: "app_mention";
   text: string;
@@ -97,6 +109,7 @@ export interface SlackAppMentionEvent {
   channel: string;
   ts: string;
   thread_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -134,9 +147,23 @@ export interface CompletionCallback {
 }
 
 /**
+ * Agent update callback payload from control-plane.
+ */
+export interface UpdateCallback {
+  sessionId: string;
+  messageId: string;
+  message: string;
+  screenshotUrl: string | null;
+  timestamp: number;
+  signature: string;
+  context: SlackCallbackContext;
+}
+
+/**
  * Event response from control-plane events API.
  */
 export type {
+  Attachment,
   EventResponse,
   ListEventsResponse,
   ArtifactResponse,
