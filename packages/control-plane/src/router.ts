@@ -127,6 +127,7 @@ const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
  */
 const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/pr$/, // PR creation from sandbox
+  /^\/sessions\/[^/]+\/git-push$/, // Push commits to remote branch from sandbox
   /^\/sessions\/[^/]+\/openai-token-refresh$/, // OpenAI token refresh from sandbox
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
@@ -401,6 +402,11 @@ const routes: Route[] = [
     method: "POST",
     pattern: parsePattern("/sessions/:id/pr"),
     handler: handleCreatePR,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/git-push"),
+    handler: handleGitPush,
   },
   {
     method: "POST",
@@ -1172,6 +1178,33 @@ async function handleCreatePR(
   );
 
   return response;
+}
+
+async function handleGitPush(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const body = (await request.json()) as { headBranch?: string };
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/git-push",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headBranch: body.headBranch }),
+      },
+      ctx
+    )
+  );
 }
 
 async function handleOpenAITokenRefresh(
