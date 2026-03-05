@@ -408,7 +408,9 @@ export interface ClassificationResult {
  * Used when LLM classification fails to provide a stable, reproducible result.
  */
 export function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
-  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
+  return [...repos]
+    .sort((a, b) => (a.fullName < b.fullName ? -1 : a.fullName > b.fullName ? 1 : 0))
+    .slice(0, 5);
 }
 
 export interface EventResponse {
