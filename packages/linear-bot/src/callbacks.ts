@@ -356,13 +356,29 @@ async function handleCompletionCallback(
           plan: makePlan(payload.success ? "completed" : "failed"),
         });
 
-        // Update externalUrls with PR link if available
+        // Build externalUrls: always include session, plus PR and active previews.
         const prArtifact = agentResponse.artifacts.find((a) => a.type === "pr" && a.url);
-        if (prArtifact) {
-          const urls = [
+        const activePreviewArtifacts = agentResponse.artifacts.filter(
+          (a) =>
+            a.type === "preview" &&
+            a.url &&
+            (a.metadata as Record<string, unknown> | null | undefined)?.kind !== "code_server" &&
+            (a.metadata as Record<string, unknown> | null | undefined)?.previewStatus !== "stopped"
+        );
+
+        if (prArtifact || activePreviewArtifacts.length > 0) {
+          const urls: Array<{ label: string; url: string }> = [
             { label: "View Session", url: `${env.WEB_APP_URL}/session/${sessionId}` },
-            { label: "Pull Request", url: prArtifact.url },
           ];
+          if (prArtifact) {
+            urls.push({ label: "Pull Request", url: prArtifact.url });
+          }
+          for (const preview of activePreviewArtifacts) {
+            const meta = preview.metadata as Record<string, unknown> | null | undefined;
+            const label = meta?.label ? String(meta.label) : "Preview";
+            const repo = meta?.repo ? ` (${String(meta.repo)})` : "";
+            urls.push({ label: `${label}${repo}`, url: preview.url });
+          }
           await updateAgentSession(client, context.agentSessionId, { externalUrls: urls });
         }
 

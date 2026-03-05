@@ -810,6 +810,180 @@ describe("SessionRepository", () => {
     });
   });
 
+  describe("upsertPreviewArtifact", () => {
+    const selectQuery = `SELECT * FROM artifacts WHERE id = ?`;
+
+    it("uses INSERT OR REPLACE with ON CONFLICT keyed on deterministic id", () => {
+      const row = {
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        metadata: '{"label":"frontend"}',
+        created_at: 1000,
+      };
+      mock.setData(selectQuery, [row]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        label: "frontend",
+        metadata: '{"label":"frontend"}',
+        createdAt: 1000,
+      });
+
+      // First call: upsert INSERT
+      expect(mock.calls[0].query).toContain("ON CONFLICT(id) DO UPDATE SET");
+      expect(mock.calls[0].params).toEqual([
+        "preview:frontend",
+        "preview",
+        "https://app.example.com",
+        '{"label":"frontend"}',
+        1000,
+      ]);
+    });
+
+    it("fetches and returns the row after upsert", () => {
+      const row = {
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        metadata: '{"label":"frontend"}',
+        created_at: 1000,
+      };
+      mock.setData(selectQuery, [row]);
+
+      const result = repo.upsertPreviewArtifact({
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        label: "frontend",
+        metadata: '{"label":"frontend"}',
+        createdAt: 1000,
+      });
+
+      expect(result).toEqual(row);
+      // Second call should be the SELECT
+      expect(mock.calls[1].query).toContain("SELECT * FROM artifacts WHERE id = ?");
+      expect(mock.calls[1].params).toEqual(["preview:frontend"]);
+    });
+
+    it("includes repo in deterministic id for multi-repo safety", () => {
+      const frontendRow = {
+        id: "preview:acme/web:frontend",
+        type: "preview",
+        url: "https://f.example.com",
+        metadata: "{}",
+        created_at: 1000,
+      };
+      const backendRow = {
+        id: "preview:acme/api:frontend",
+        type: "preview",
+        url: "https://b.example.com",
+        metadata: "{}",
+        created_at: 1001,
+      };
+
+      // Set data so SELECT returns the right row for each id
+      mock.setData(selectQuery, [frontendRow]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://f.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        metadata: "{}",
+        createdAt: 1000,
+      });
+
+      // Reset and configure for backend
+      mock.reset();
+      mock.setData(selectQuery, [backendRow]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:backend",
+        type: "preview",
+        url: "https://b.example.com",
+        label: "frontend",
+        repo: "acme/api",
+        metadata: "{}",
+        createdAt: 1001,
+      });
+
+      expect(mock.calls[0].params[0]).toBe("preview:acme/api:frontend");
+    });
+
+    it("falls back to label-only id when repo is omitted", () => {
+      const row = {
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        metadata: "{}",
+        created_at: 1000,
+      };
+      mock.setData(selectQuery, [row]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:frontend",
+        type: "preview",
+        url: "https://app.example.com",
+        label: "frontend",
+        metadata: "{}",
+        createdAt: 1000,
+      });
+
+      expect(mock.calls[0].params[0]).toBe("preview:frontend");
+    });
+
+    it("second upsert for same label overwrites url and metadata", () => {
+      const updatedRow = {
+        id: "preview:app",
+        type: "preview",
+        url: "https://v2.example.com",
+        metadata: '{"label":"app","previewStatus":"active"}',
+        created_at: 2000,
+      };
+      mock.setData(selectQuery, [updatedRow]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:app",
+        type: "preview",
+        url: "https://v2.example.com",
+        label: "app",
+        metadata: '{"label":"app","previewStatus":"active"}',
+        createdAt: 2000,
+      });
+
+      expect(mock.calls[0].query).toContain("ON CONFLICT(id) DO UPDATE SET");
+      expect(mock.calls[0].params[2]).toBe("https://v2.example.com");
+      expect(mock.calls[0].params[3]).toBe('{"label":"app","previewStatus":"active"}');
+      expect(mock.calls[0].params[4]).toBe(2000);
+    });
+
+    it("code-server artifact uses 'preview:code-server' as id", () => {
+      const row = {
+        id: "preview:code-server",
+        type: "preview",
+        url: "https://code.example.com",
+        metadata: '{"kind":"code_server","label":"code-server","previewStatus":"active"}',
+        created_at: 1000,
+      };
+      mock.setData(selectQuery, [row]);
+
+      repo.upsertPreviewArtifact({
+        id: "preview:code-server",
+        type: "preview",
+        url: "https://code.example.com",
+        label: "code-server",
+        metadata: '{"kind":"code_server","label":"code-server","previewStatus":"active"}',
+        createdAt: 1000,
+      });
+
+      expect(mock.calls[0].params[0]).toBe("preview:code-server");
+    });
+  });
+
   // === WS CLIENT MAPPING ===
 
   describe("upsertWsClientMapping", () => {

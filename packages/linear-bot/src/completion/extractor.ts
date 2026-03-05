@@ -184,6 +184,11 @@ function getArtifactLabelFromArtifact(
 ): string {
   if (type === "pr") return metadata?.number ? `PR #${metadata.number}` : "Pull Request";
   if (type === "branch") return `Branch: ${metadata?.head ?? "branch"}`;
+  if (type === "preview") {
+    const label = metadata?.label ? String(metadata.label) : "Preview";
+    const repo = metadata?.repo ? ` (${String(metadata.repo)})` : "";
+    return `${label}${repo}`;
+  }
   return type;
 }
 

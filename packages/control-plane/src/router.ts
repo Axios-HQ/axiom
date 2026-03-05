@@ -134,6 +134,8 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
   /^\/api\/media\/upload$/, // Media upload from sandbox
   /^\/sessions\/[^/]+\/agent-update$/, // Agent progress updates
+  /^\/sessions\/[^/]+\/preview-url$/, // Publish a preview URL artifact
+  /^\/sessions\/[^/]+\/code-server-ready$/, // code-server started (authenticated, credential delivery)
 ];
 
 type CachedScmProvider =
@@ -480,6 +482,20 @@ const routes: Route[] = [
     method: "POST",
     pattern: parsePattern("/sessions/:id/agent-update"),
     handler: handleAgentUpdate,
+  },
+
+  // Preview URL publishing (sandbox/agent-authenticated)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/preview-url"),
+    handler: handlePublishPreviewUrl,
+  },
+
+  // code-server credentials delivery (sandbox-authenticated, not logged)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/code-server-ready"),
+    handler: handleCodeServerReady,
   },
 ];
 
@@ -1676,6 +1692,65 @@ async function handleAgentUpdate(
   return stub.fetch(
     internalRequest(
       "http://internal/internal/agent-update",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
+}
+
+/**
+ * Handle a preview URL publish request from a sandbox agent tool or
+ * sandbox bridge.  Forwards to the session DO which upserts a preview
+ * artifact and broadcasts an `artifact_created` message to connected clients.
+ */
+async function handlePublishPreviewUrl(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSessionStub(env, match);
+  if (!stub) return error("Session ID required");
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/preview-url",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
+}
+
+/**
+ * Handle code-server ready notification from the sandbox.
+ *
+ * The sandbox reports the tunnel URL and the session-scoped password.
+ * This endpoint forwards to the session DO which:
+ *   1. Creates a "preview" artifact with the URL (no password).
+ *   2. Broadcasts `code_server_ready` (URL + password) over the
+ *      authenticated WebSocket channel only — credentials are never
+ *      written to the event log.
+ */
+async function handleCodeServerReady(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSessionStub(env, match);
+  if (!stub) return error("Session ID required");
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/code-server-ready",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
