@@ -89,7 +89,7 @@ app.get("/oauth/callback", async (c) => {
 
         try {
           const token = await generateInternalToken(c.env.INTERNAL_CALLBACK_SECRET);
-          await c.env.CONTROL_PLANE.fetch("https://internal/identity-links/sync", {
+          const response = await c.env.CONTROL_PLANE.fetch("https://internal/identity-links/sync", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -97,6 +97,11 @@ app.get("/oauth/callback", async (c) => {
             },
             body: JSON.stringify({ mode: "apply", domain: "axioshq.com" }),
           });
+          if (!response.ok) {
+            log.warn("identity_sync.trigger_non_ok", {
+              status: response.status,
+            });
+          }
         } catch (error) {
           log.warn("identity_sync.trigger_failed", {
             error: error instanceof Error ? error.message : String(error),

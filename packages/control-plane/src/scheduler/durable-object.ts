@@ -99,7 +99,14 @@ export class SchedulerDO extends DurableObject<Env> {
     await this.recoverySweep(store);
 
     // 1b. Daily identity sync for Slack+Linear user mappings
-    await this.maybeRunDailyIdentitySync();
+    try {
+      await this.maybeRunDailyIdentitySync();
+    } catch (e) {
+      this.log.error("Daily identity sync failed", {
+        event: "identity_link.sync.daily_error",
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     // 2. Process overdue automations
     const overdue = await store.getOverdueAutomations(now, MAX_PER_TICK);

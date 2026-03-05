@@ -7,15 +7,28 @@ function parseArgs(argv) {
     overrideManual: false,
   };
 
+  let hasDryRun = false;
+  let hasApply = false;
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--dry-run") args.mode = "dry-run";
-    if (arg === "--apply") args.mode = "apply";
+    if (arg === "--dry-run") {
+      hasDryRun = true;
+      args.mode = "dry-run";
+    }
+    if (arg === "--apply") {
+      hasApply = true;
+      args.mode = "apply";
+    }
     if (arg === "--override-manual") args.overrideManual = true;
     if (arg === "--domain") {
       args.domain = argv[i + 1] || args.domain;
       i += 1;
     }
+  }
+
+  if (hasDryRun && hasApply) {
+    throw new Error("--dry-run and --apply are mutually exclusive; specify exactly one");
   }
 
   return args;

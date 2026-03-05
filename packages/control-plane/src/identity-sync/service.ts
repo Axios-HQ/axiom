@@ -4,6 +4,7 @@ import {
   resolveGitHubUserById,
   type ResolvedGitHubUser,
 } from "../source-control/github-user-resolver";
+import { fetchWithTimeout } from "../auth/github-app";
 
 const logger = createLogger("identity-sync");
 
@@ -59,7 +60,7 @@ async function fetchSlackUsers(slackBotToken: string): Promise<SlackUser[]> {
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await fetchWithTimeout(url.toString(), {
       headers: { Authorization: `Bearer ${slackBotToken}` },
     });
 
@@ -92,7 +93,7 @@ async function fetchLinearUsers(linearApiKey: string): Promise<LinearUser[]> {
   let cursor: string | null = null;
 
   while (hasMore) {
-    const response = await fetch("https://api.linear.app/graphql", {
+    const response = await fetchWithTimeout("https://api.linear.app/graphql", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -219,7 +220,30 @@ export async function runIdentityLinkSync(input: IdentitySyncInput): Promise<Ide
     };
 
     if (input.mode === "dry-run") {
-      result.linked += 2;
+      // Simulate upsert decisions without writing to DB.
+      const candidates: Array<{ provider: "slack" | "linear"; externalUserId: string }> = [
+        { provider: "slack", externalUserId: slackUser.id },
+        { provider: "linear", externalUserId: linearUser.id },
+      ];
+      for (const candidate of candidates) {
+        const existing = await store.getByProviderExternal(
+          candidate.provider,
+          candidate.externalUserId
+        );
+        if (existing?.isManual && preserveManual) {
+          const wouldConflict =
+            existing.githubUserId !== String(ghUser.id) ||
+            existing.githubLogin !== ghUser.login ||
+            (existing.githubName ?? null) !== (ghUser.name ?? null);
+          if (wouldConflict) {
+            result.conflicted += 1;
+          } else {
+            result.skipped += 1;
+          }
+        } else {
+          result.linked += 1;
+        }
+      }
       continue;
     }
 

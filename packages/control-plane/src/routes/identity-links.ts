@@ -1,5 +1,6 @@
 import { IdentityLinksStore, type IdentityProvider } from "../db/identity-links";
 import { runIdentityLinkSync } from "../identity-sync/service";
+import { verifyInternalToken } from "../auth/internal";
 import { type Route, type RequestContext, parsePattern, json, error } from "./shared";
 
 function isIdentityProvider(value: string): value is IdentityProvider {
@@ -68,10 +69,27 @@ async function handleUpsertIdentityLink(
 
 async function handleSyncIdentityLinks(
   request: Request,
-  env: { DB: D1Database; SLACK_BOT_TOKEN?: string; LINEAR_API_KEY?: string },
+  env: {
+    DB: D1Database;
+    SLACK_BOT_TOKEN?: string;
+    LINEAR_API_KEY?: string;
+    INTERNAL_CALLBACK_SECRET?: string;
+  },
   _match: RegExpMatchArray,
   _ctx: RequestContext
 ): Promise<Response> {
+  // Defense-in-depth: verify bearer token even though the router already enforces HMAC auth.
+  if (!env.INTERNAL_CALLBACK_SECRET) {
+    return error("Internal authentication not configured", 500);
+  }
+  const isAuthorized = await verifyInternalToken(
+    request.headers.get("Authorization"),
+    env.INTERNAL_CALLBACK_SECRET
+  );
+  if (!isAuthorized) {
+    return error("Unauthorized", 401);
+  }
+
   const body = (await request.json().catch(() => ({}))) as {
     mode?: "dry-run" | "apply";
     domain?: string;

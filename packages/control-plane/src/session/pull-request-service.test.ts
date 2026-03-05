@@ -208,6 +208,11 @@ describe("SessionPullRequestService", () => {
     expect(createPrCall[1].body).toContain("Requested by user-1");
     expect(createPrCall[1].reviewers).toBeUndefined();
     expect(harness.deps.broadcastArtifactCreated).toHaveBeenCalledTimes(1);
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("app");
+    expect(metadata.oauthSignInRequired).toBe(true);
   });
 
   it("creates PR with OAuth token and stores PR artifact", async () => {
@@ -237,6 +242,11 @@ describe("SessionPullRequestService", () => {
       url: "https://github.com/acme/web/pull/42",
       prNumber: 42,
     });
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("oauth");
+    expect(metadata.oauthSignInRequired).toBe(false);
   });
 
   it("forwards draft flag when creating a PR", async () => {

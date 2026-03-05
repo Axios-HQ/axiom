@@ -212,7 +212,14 @@ export class SessionPullRequestService {
 
       const artifactId = this.deps.generateId();
       const now = Date.now();
-      const authMode = prAuth.authType === "oauth" ? "oauth" : "app";
+      if (prAuth.authType !== "oauth" && prAuth.authType !== "app") {
+        return {
+          kind: "error",
+          status: 500,
+          error: `Unexpected auth type: ${String(prAuth.authType)}`,
+        };
+      }
+      const authMode: "oauth" | "app" = prAuth.authType;
       const oauthSignInRequired = authMode === "app";
       this.deps.repository.createArtifact({
         id: artifactId,

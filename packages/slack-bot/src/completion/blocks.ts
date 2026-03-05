@@ -151,12 +151,13 @@ export function buildCompletionBlocks(
 }
 
 function hasPrArtifactWithoutOAuth(artifacts: AgentResponse["artifacts"]): boolean {
-  const prArtifact = artifacts.find((artifact) => artifact.type === "pr");
-  if (!prArtifact || !prArtifact.metadata || typeof prArtifact.metadata !== "object") {
-    return false;
-  }
-
-  return prArtifact.metadata.oauthSignInRequired === true;
+  return artifacts.some(
+    (artifact) =>
+      artifact.type === "pr" &&
+      artifact.metadata !== null &&
+      typeof artifact.metadata === "object" &&
+      artifact.metadata.oauthSignInRequired === true
+  );
 }
 
 /**
