@@ -91,6 +91,7 @@ async function createSession(
       body: JSON.stringify({
         repoOwner: repo.owner,
         repoName: repo.name,
+        sessionRepos: [{ repoOwner: repo.owner, repoName: repo.name, editable: true }],
         title: title || `Slack: ${repo.name}`,
         model,
         reasoningEffort,

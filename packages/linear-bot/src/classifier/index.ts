@@ -5,6 +5,7 @@
 
 import type { Env, RepoConfig, ClassificationResult } from "../types";
 import type { ConfidenceLevel } from "@open-inspect/shared";
+import { getDeterministicAlternatives } from "@open-inspect/shared";
 import { getAvailableRepos, buildRepoDescriptions } from "./repos";
 import { createLogger } from "../logger";
 
@@ -264,7 +265,7 @@ export async function classifyRepo(
       repo: null,
       confidence: "low",
       reasoning: "Could not classify repository. Please configure project→repo mapping.",
-      alternatives: repos.slice(0, 5),
+      alternatives: getDeterministicAlternatives(repos),
       needsClarification: true,
     };
   }

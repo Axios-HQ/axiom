@@ -176,6 +176,32 @@ function resolveDeploymentScmProvider(env: Env): SourceControlProviderName {
   return cachedScmProvider.provider;
 }
 
+type RequestedSessionRepo = {
+  repoOwner: string;
+  repoName: string;
+  editable?: boolean;
+};
+
+type ResolvedSessionRepo = {
+  repoOwner: string;
+  repoName: string;
+  repoId: number;
+  defaultBranch: string;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
+};
+
+function getRequestedSessionRepos(
+  body: CreateSessionRequest & { sessionRepos?: RequestedSessionRepo[] }
+): RequestedSessionRepo[] {
+  if (Array.isArray(body.sessionRepos) && body.sessionRepos.length > 0) {
+    return body.sessionRepos;
+  }
+
+  return [{ repoOwner: body.repoOwner, repoName: body.repoName, editable: true }];
+}
+
 /**
  * Check if a path matches any public route pattern.
  */
@@ -646,6 +672,8 @@ async function handleCreateSession(
   ctx: RequestContext
 ): Promise<Response> {
   const body = (await request.json()) as CreateSessionRequest & {
+    sessionRepos?: RequestedSessionRepo[];
+    allowSecondaryRepoEdit?: boolean;
     scmToken?: string;
     userId?: string;
     scmUserId?: string;
@@ -663,31 +691,73 @@ async function handleCreateSession(
     return error("Invalid branch name");
   }
 
-  // Normalize repo identifiers to lowercase for consistent storage
-  const repoOwner = body.repoOwner.toLowerCase();
-  const repoName = body.repoName.toLowerCase();
+  const requestedSessionRepos = getRequestedSessionRepos(body);
+  if (requestedSessionRepos.length > 2) {
+    return error("sessionRepos supports a maximum of 2 repositories", 400);
+  }
 
-  let repoId: number;
-  let defaultBranch: string;
+  let resolvedSessionRepos: ResolvedSessionRepo[];
   try {
     const provider = createRouteSourceControlProvider(env);
-    const resolved = await resolveInstalledRepo(provider, repoOwner, repoName);
-    if (!resolved) {
-      return error("Repository is not installed for the GitHub App", 404);
+    resolvedSessionRepos = [];
+    for (let index = 0; index < requestedSessionRepos.length; index++) {
+      const requested = requestedSessionRepos[index];
+      if (
+        typeof requested.repoOwner !== "string" ||
+        requested.repoOwner.trim().length === 0 ||
+        typeof requested.repoName !== "string" ||
+        requested.repoName.trim().length === 0
+      ) {
+        return error(
+          `sessionRepos[${index}] must have non-empty string repoOwner and repoName`,
+          400
+        );
+      }
+      const normalizedOwner = requested.repoOwner.trim().toLowerCase();
+      const normalizedName = requested.repoName.trim().toLowerCase();
+      const resolved = await resolveInstalledRepo(provider, normalizedOwner, normalizedName);
+      if (!resolved) {
+        return error(
+          `Repository is not installed for the GitHub App: ${normalizedOwner}/${normalizedName}`,
+          404
+        );
+      }
+
+      const isPrimary = index === 0;
+      const allowSecondaryEdit = body.allowSecondaryRepoEdit === true;
+      const isEditable = isPrimary ? true : allowSecondaryEdit && requested.editable === true;
+
+      resolvedSessionRepos.push({
+        repoOwner: normalizedOwner,
+        repoName: normalizedName,
+        repoId: resolved.repoId,
+        defaultBranch: resolved.defaultBranch,
+        order: index,
+        isPrimary,
+        isEditable,
+      });
     }
-    repoId = resolved.repoId;
-    defaultBranch = resolved.defaultBranch;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logger.error("Failed to resolve repository", {
       error: message,
-      repo_owner: repoOwner,
-      repo_name: repoName,
+      repo_owner: body.repoOwner,
+      repo_name: body.repoName,
     });
     const isConfigError =
       e instanceof SourceControlProviderError && e.errorType === "permanent" && !e.httpStatus;
     return error(isConfigError ? message : "Failed to resolve repository", 500);
   }
+
+  const primaryRepo = resolvedSessionRepos[0];
+  if (!primaryRepo) {
+    return error("At least one repository is required", 400);
+  }
+
+  const repoOwner = primaryRepo.repoOwner;
+  const repoName = primaryRepo.repoName;
+  const repoId = primaryRepo.repoId;
+  const defaultBranch = primaryRepo.defaultBranch;
 
   const userId = body.userId || "anonymous";
   let scmUserId = body.scmUserId;
@@ -875,6 +945,7 @@ async function handleCreateSession(
           repoName,
           repoId,
           defaultBranch,
+          sessionRepos: resolvedSessionRepos,
           branch: body.branch,
           title: body.title,
           model,
@@ -903,6 +974,7 @@ async function handleCreateSession(
     title: body.title || null,
     repoOwner,
     repoName,
+    sessionReposJson: JSON.stringify(resolvedSessionRepos),
     model,
     reasoningEffort,
     baseBranch: body.branch || defaultBranch || "main",
@@ -1133,6 +1205,8 @@ async function handleCreatePR(
     baseBranch?: string;
     headBranch?: string;
     draft?: boolean;
+    repoOwner?: string;
+    repoName?: string;
   };
 
   if (
@@ -1156,6 +1230,14 @@ async function handleCreatePR(
     return error("draft must be a boolean");
   }
 
+  if (body.repoOwner != null && typeof body.repoOwner !== "string") {
+    return error("repoOwner must be a string");
+  }
+
+  if (body.repoName != null && typeof body.repoName !== "string") {
+    return error("repoName must be a string");
+  }
+
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
@@ -1171,6 +1253,8 @@ async function handleCreatePR(
           baseBranch: body.baseBranch,
           headBranch: body.headBranch,
           draft: body.draft,
+          repoOwner: body.repoOwner,
+          repoName: body.repoName,
         }),
       },
       ctx
@@ -1513,6 +1597,7 @@ async function handleSpawnChild(
           repoOwner: spawnContext.repoOwner,
           repoName: spawnContext.repoName,
           repoId: spawnContext.repoId,
+          sessionRepos: spawnContext.sessionRepos,
           title: body.title,
           model,
           reasoningEffort,
@@ -1541,6 +1626,9 @@ async function handleSpawnChild(
     title: body.title,
     repoOwner: spawnContext.repoOwner,
     repoName: spawnContext.repoName,
+    sessionReposJson: spawnContext.sessionRepos
+      ? JSON.stringify(spawnContext.sessionRepos)
+      : undefined,
     model,
     reasoningEffort,
     baseBranch: null,

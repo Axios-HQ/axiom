@@ -61,6 +61,7 @@ export function SessionRightSidebarContent({
           branchName={sessionState.branchName || undefined}
           repoOwner={sessionState.repoOwner}
           repoName={sessionState.repoName}
+          sessionRepos={sessionState.sessionRepos}
           artifacts={artifacts}
           parentSessionId={sessionState.parentSessionId}
         />

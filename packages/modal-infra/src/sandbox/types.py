@@ -113,6 +113,7 @@ class SessionConfig(BaseModel):
     repo_owner: str
     repo_name: str
     branch: str | None = None
+    session_repos: list[dict[str, Any]] | None = None
     base_sha: str | None = None
     opencode_session_id: str | None = None
     provider: str = "anthropic"

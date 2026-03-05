@@ -49,6 +49,52 @@ export async function POST(request: NextRequest) {
     const jwt = await getToken({ req: request });
     const accessToken = jwt?.accessToken as string | undefined;
 
+    // Validate optional sessionRepos field
+    if (body.sessionRepos !== undefined && body.sessionRepos !== null) {
+      if (!Array.isArray(body.sessionRepos)) {
+        return NextResponse.json({ error: "sessionRepos must be an array" }, { status: 400 });
+      }
+      if (body.sessionRepos.length > 2) {
+        return NextResponse.json(
+          { error: "sessionRepos supports a maximum of 2 repositories" },
+          { status: 400 }
+        );
+      }
+      for (let i = 0; i < body.sessionRepos.length; i++) {
+        const repo = body.sessionRepos[i];
+        if (
+          !repo ||
+          typeof repo !== "object" ||
+          typeof repo.repoOwner !== "string" ||
+          repo.repoOwner.trim().length === 0 ||
+          typeof repo.repoName !== "string" ||
+          repo.repoName.trim().length === 0
+        ) {
+          return NextResponse.json(
+            { error: `sessionRepos[${i}] must have non-empty string repoOwner and repoName` },
+            { status: 400 }
+          );
+        }
+        if (repo.editable !== undefined && typeof repo.editable !== "boolean") {
+          return NextResponse.json(
+            { error: `sessionRepos[${i}].editable must be a boolean` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // Validate optional allowSecondaryRepoEdit field
+    if (
+      body.allowSecondaryRepoEdit !== undefined &&
+      typeof body.allowSecondaryRepoEdit !== "boolean"
+    ) {
+      return NextResponse.json(
+        { error: "allowSecondaryRepoEdit must be a boolean" },
+        { status: 400 }
+      );
+    }
+
     // Explicitly pick allowed fields from client body and derive identity
     // from the server-side NextAuth session (not client-supplied data)
     const user = session.user;
@@ -57,6 +103,8 @@ export async function POST(request: NextRequest) {
     const sessionBody = {
       repoOwner: body.repoOwner,
       repoName: body.repoName,
+      sessionRepos: body.sessionRepos,
+      allowSecondaryRepoEdit: body.allowSecondaryRepoEdit,
       model: body.model,
       reasoningEffort: body.reasoningEffort,
       branch: body.branch,

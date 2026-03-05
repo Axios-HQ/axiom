@@ -5,6 +5,7 @@ export interface SessionEntry {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  sessionReposJson?: string;
   model: string;
   reasoningEffort: string | null;
   baseBranch: string | null;
@@ -23,6 +24,7 @@ interface SessionRow {
   title: string | null;
   repo_owner: string;
   repo_name: string;
+  session_repos_json: string | null;
   model: string;
   reasoning_effort: string | null;
   base_branch: string | null;
@@ -57,6 +59,7 @@ function toEntry(row: SessionRow): SessionEntry {
     title: row.title,
     repoOwner: row.repo_owner,
     repoName: row.repo_name,
+    ...(row.session_repos_json ? { sessionReposJson: row.session_repos_json } : {}),
     model: row.model,
     reasoningEffort: row.reasoning_effort,
     baseBranch: row.base_branch,
@@ -77,14 +80,15 @@ export class SessionIndexStore {
   async create(session: SessionEntry): Promise<void> {
     await this.db
       .prepare(
-        `INSERT OR IGNORE INTO sessions (id, title, repo_owner, repo_name, model, reasoning_effort, base_branch, status, parent_session_id, spawn_source, spawn_depth, automation_id, automation_run_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO sessions (id, title, repo_owner, repo_name, session_repos_json, model, reasoning_effort, base_branch, status, parent_session_id, spawn_source, spawn_depth, automation_id, automation_run_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         session.id,
         session.title,
         session.repoOwner.toLowerCase(),
         session.repoName.toLowerCase(),
+        session.sessionReposJson ?? null,
         session.model,
         session.reasoningEffort,
         session.baseBranch,

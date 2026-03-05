@@ -56,8 +56,8 @@ import type {
   ParticipantRole,
   SpawnSource,
 } from "../types";
-import type { SpawnContext } from "@open-inspect/shared";
-import type { SessionRow, ArtifactRow, SandboxRow } from "./types";
+import type { SpawnContext, SessionRepoScope } from "@open-inspect/shared";
+import type { SessionRow, ArtifactRow, SandboxRow, SessionRepoRow } from "./types";
 import { SessionRepository } from "./repository";
 import { SessionWebSocketManagerImpl, type SessionWebSocketManager } from "./websocket-manager";
 import { SessionPullRequestService } from "./pull-request-service";
@@ -410,6 +410,8 @@ export class SessionDO extends DurableObject<Env> {
       getSandbox: () => this.repository.getSandbox(),
       getSandboxWithCircuitBreaker: () => this.repository.getSandboxWithCircuitBreaker(),
       getSession: () => this.repository.getSession(),
+      getSessionRepos: () =>
+        this.repository.listSessionRepos().map((repo) => this.mapRepoRowToScope(repo)),
       getUserEnvVars: () => this.getUserEnvVars(),
       updateSandboxStatus: (status) => this.updateSandboxStatus(status),
       updateSandboxForSpawn: (data) => this.repository.updateSandboxForSpawn(data),
@@ -1329,12 +1331,16 @@ export class SessionDO extends DurableObject<Env> {
     sandbox ??= this.getSandbox();
     const messageCount = this.repository.getMessageCount();
     const isProcessing = this.getIsProcessing();
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
 
     return {
       id: this.getPublicSessionId(session),
       title: session?.title ?? null,
       repoOwner: session?.repo_owner ?? "",
       repoName: session?.repo_name ?? "",
+      sessionRepos,
       baseBranch: session?.base_branch ?? "main",
       branchName: session?.branch_name ?? null,
       status: session?.status ?? "created",
@@ -1363,6 +1369,17 @@ export class SessionDO extends DurableObject<Env> {
 
   private getSandbox(): SandboxRow | null {
     return this.repository.getSandbox();
+  }
+
+  private mapRepoRowToScope(repo: SessionRepoRow): SessionRepoScope {
+    return {
+      repoOwner: repo.repo_owner,
+      repoName: repo.repo_name,
+      repoId: repo.repo_id,
+      order: repo.order_index,
+      isPrimary: repo.is_primary === 1,
+      isEditable: repo.is_editable === 1,
+    };
   }
 
   private async ensureRepoId(session: SessionRow): Promise<number> {
@@ -1591,6 +1608,7 @@ export class SessionDO extends DurableObject<Env> {
       parentSessionId?: string | null;
       spawnSource?: SpawnSource;
       spawnDepth?: number;
+      sessionRepos?: SessionRepoScope[];
     };
 
     const sessionId = this.ctx.id.toString();
@@ -1645,6 +1663,32 @@ export class SessionDO extends DurableObject<Env> {
       updatedAt: now,
     });
 
+    const sessionRepos: SessionRepoScope[] =
+      body.sessionRepos && body.sessionRepos.length > 0
+        ? body.sessionRepos
+        : [
+            {
+              repoOwner: body.repoOwner,
+              repoName: body.repoName,
+              repoId: body.repoId ?? null,
+              order: 0,
+              isPrimary: true,
+              isEditable: true,
+            },
+          ];
+
+    this.repository.upsertSessionRepos(
+      sessionRepos.map((repo, index) => ({
+        id: generateId(),
+        repoOwner: repo.repoOwner,
+        repoName: repo.repoName,
+        repoId: repo.repoId,
+        order: repo.order ?? index,
+        isPrimary: Boolean(repo.isPrimary),
+        isEditable: Boolean(repo.isEditable),
+      }))
+    );
+
     // Create sandbox record
     // Note: created_at is set to 0 initially so the first spawn isn't blocked by cooldown
     // It will be updated to the actual spawn time when spawnSandbox() is called
@@ -1683,12 +1727,16 @@ export class SessionDO extends DurableObject<Env> {
     }
 
     const sandbox = this.getSandbox();
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
 
     return Response.json({
       id: this.getPublicSessionId(session),
       title: session.title,
       repoOwner: session.repo_owner,
       repoName: session.repo_name,
+      sessionRepos,
       baseBranch: session.base_branch,
       branchName: session.branch_name,
       baseSha: session.base_sha,
@@ -1941,11 +1989,23 @@ export class SessionDO extends DurableObject<Env> {
       baseBranch?: string;
       headBranch?: string;
       draft?: boolean;
+      repoOwner?: string;
+      repoName?: string;
     };
 
     const session = this.getSession();
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    if (
+      (body.repoOwner && body.repoOwner.toLowerCase() !== session.repo_owner.toLowerCase()) ||
+      (body.repoName && body.repoName.toLowerCase() !== session.repo_name.toLowerCase())
+    ) {
+      return Response.json(
+        { error: "Requested PR repository does not match session primary repository" },
+        { status: 403 }
+      );
     }
 
     const promptingParticipantResult = await this.participantService.getPromptingParticipantForPR();
@@ -2241,10 +2301,15 @@ export class SessionDO extends DurableObject<Env> {
       return Response.json({ error: "No owner participant found" }, { status: 404 });
     }
 
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
+
     const context: SpawnContext = {
       repoOwner: session.repo_owner,
       repoName: session.repo_name,
       repoId: session.repo_id,
+      sessionRepos,
       model: session.model,
       reasoningEffort: session.reasoning_effort ?? null,
       owner: {

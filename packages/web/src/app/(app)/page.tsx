@@ -139,6 +139,7 @@ export default function Home() {
           body: JSON.stringify({
             repoOwner: owner,
             repoName: name,
+            sessionRepos: [{ repoOwner: owner, repoName: name, editable: true }],
             model: selectedModel,
             reasoningEffort,
             branch: selectedBranch || undefined,

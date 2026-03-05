@@ -6,6 +6,7 @@
  */
 
 import { generateInternalToken } from "@open-inspect/shared";
+import type { SessionRepoScope } from "@open-inspect/shared";
 import { createLogger } from "../logger";
 import type { CorrelationContext } from "../logger";
 
@@ -38,6 +39,7 @@ export interface CreateSandboxRequest {
   repoImageSha?: string | null;
   timeoutSeconds?: number;
   branch?: string;
+  sessionRepos?: SessionRepoScope[];
 }
 
 export interface CreateSandboxResponse {
@@ -60,6 +62,7 @@ export interface RestoreSandboxRequest {
   userEnvVars?: Record<string, string>;
   timeoutSeconds?: number;
   branch?: string;
+  sessionRepos?: SessionRepoScope[];
 }
 
 export interface RestoreSandboxResponse {
@@ -244,6 +247,7 @@ export class ModalClient {
           repo_image_sha: request.repoImageSha || null,
           timeout_seconds: request.timeoutSeconds || null,
           branch: request.branch || null,
+          session_repos: request.sessionRepos || null,
         }),
       });
 
@@ -313,6 +317,7 @@ export class ModalClient {
             provider: request.provider,
             model: request.model,
             branch: request.branch || null,
+            session_repos: request.sessionRepos || null,
           },
           sandbox_id: request.sandboxId,
           control_plane_url: request.controlPlaneUrl,

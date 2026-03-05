@@ -8,6 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env, RepoConfig, ThreadContext, ClassificationResult } from "../types";
 import type { ConfidenceLevel } from "@open-inspect/shared";
+import { getDeterministicAlternatives } from "@open-inspect/shared";
 import { getAvailableRepos, buildRepoDescriptions, getReposByChannel } from "./repos";
 import { createLogger } from "../logger";
 
@@ -343,7 +344,7 @@ export class RepoClassifier {
         confidence: "low",
         reasoning:
           "Could not classify repository from structured model output. Please select a repository.",
-        alternatives: repos.slice(0, 5),
+        alternatives: getDeterministicAlternatives(repos),
         needsClarification: true,
       };
     }

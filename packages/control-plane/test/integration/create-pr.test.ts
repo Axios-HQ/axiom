@@ -38,7 +38,12 @@ function createMockSourceControlProvider(): SourceControlProvider {
       targetBranch: config.targetBranch,
       force: true,
     }),
-    checkRepositoryAccess: async () => ({ repoId: 12345, repoOwner: "acme", repoName: "web-app" }),
+    checkRepositoryAccess: async () => ({
+      repoId: 12345,
+      repoOwner: "acme",
+      repoName: "web-app",
+      defaultBranch: "main",
+    }),
     listRepositories: async () => [],
     listBranches: async () => [],
     generateCloneAuth: async () => ({ authType: "app", token: "push-token" as const }),
@@ -288,5 +293,44 @@ describe("POST /internal/create-pr", () => {
     expect(res.status).toBe(409);
     const body = await res.json<{ error: string }>();
     expect(body.error).toBe("A pull request has already been created for this session.");
+  });
+
+  it("rejects PR creation when requested repo does not match session repo", async () => {
+    const { stub } = await initSession({ userId: "user-1" });
+
+    const participants = await queryDO<{ id: string }>(
+      stub,
+      "SELECT id FROM participants WHERE user_id = ?",
+      "user-1"
+    );
+    const ownerParticipantId = participants[0]?.id;
+    if (!ownerParticipantId) {
+      throw new Error("Expected owner participant");
+    }
+
+    await seedMessage(stub, {
+      id: "msg-processing-repo-mismatch",
+      authorId: ownerParticipantId,
+      content: "Create a PR",
+      source: "web",
+      status: "processing",
+      createdAt: Date.now() - 1000,
+      startedAt: Date.now() - 500,
+    });
+
+    const res = await stub.fetch("http://internal/internal/create-pr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Test PR",
+        body: "Body from integration test",
+        repoOwner: "wrong",
+        repoName: "repo",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json<{ error: string }>();
+    expect(body.error).toContain("does not match");
   });
 });

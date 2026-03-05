@@ -437,6 +437,7 @@ async function handleNewSession(
     body: JSON.stringify({
       repoOwner,
       repoName,
+      sessionRepos: [{ repoOwner, repoName, editable: true }],
       title: `${issue.identifier}: ${issue.title}`,
       model,
       reasoningEffort,
