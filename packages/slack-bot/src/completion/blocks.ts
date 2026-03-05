@@ -98,6 +98,7 @@ export function buildCompletionBlocks(
   });
 
   const hasPrArtifact = response.artifacts.some((artifact) => artifact.type === "pr");
+  const requiresSignIn = hasPrArtifactWithoutOAuth(response.artifacts);
   const manualCreatePrUrl = getManualCreatePrUrl(response.artifacts);
   const actionElements: Array<{
     type: string;
@@ -122,6 +123,24 @@ export function buildCompletionBlocks(
     });
   }
 
+  if (requiresSignIn) {
+    actionElements.push({
+      type: "button",
+      text: { type: "plain_text", text: "Sign in with GitHub" },
+      url: `${webAppUrl}/api/auth/signin/github`,
+      action_id: "signin_github",
+    });
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "PR was opened with app auth. Sign in once to open future PRs as yourself.",
+        },
+      ],
+    });
+  }
+
   // 5. Action buttons
   blocks.push({
     type: "actions",
@@ -129,6 +148,15 @@ export function buildCompletionBlocks(
   });
 
   return blocks;
+}
+
+function hasPrArtifactWithoutOAuth(artifacts: AgentResponse["artifacts"]): boolean {
+  const prArtifact = artifacts.find((artifact) => artifact.type === "pr");
+  if (!prArtifact || !prArtifact.metadata || typeof prArtifact.metadata !== "object") {
+    return false;
+  }
+
+  return prArtifact.metadata.oauthSignInRequired === true;
 }
 
 /**

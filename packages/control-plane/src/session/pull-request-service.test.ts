@@ -199,6 +199,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
@@ -218,6 +220,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "oauth",
+      oauthSignInRequired: false,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
@@ -279,6 +283,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
   });

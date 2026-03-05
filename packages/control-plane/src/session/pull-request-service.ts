@@ -32,6 +32,8 @@ export type CreatePullRequestResult =
       prNumber: number;
       prUrl: string;
       state: "open" | "closed" | "merged" | "draft";
+      authMode: "oauth" | "app";
+      oauthSignInRequired: boolean;
     }
   | { kind: "error"; status: number; error: string };
 
@@ -210,6 +212,8 @@ export class SessionPullRequestService {
 
       const artifactId = this.deps.generateId();
       const now = Date.now();
+      const authMode = prAuth.authType === "oauth" ? "oauth" : "app";
+      const oauthSignInRequired = authMode === "app";
       this.deps.repository.createArtifact({
         id: artifactId,
         type: "pr",
@@ -219,6 +223,8 @@ export class SessionPullRequestService {
           state: prResult.state,
           head: headBranch,
           base: baseBranch,
+          authMode,
+          oauthSignInRequired,
         }),
         createdAt: now,
       });
@@ -235,6 +241,8 @@ export class SessionPullRequestService {
         prNumber: prResult.id,
         prUrl: prResult.webUrl,
         state: prResult.state,
+        authMode,
+        oauthSignInRequired,
       };
     } catch (error) {
       this.deps.log.error("PR creation failed", {

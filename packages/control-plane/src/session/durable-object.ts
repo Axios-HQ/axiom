@@ -1998,6 +1998,8 @@ export class SessionDO extends DurableObject<Env> {
       prNumber: result.prNumber,
       prUrl: result.prUrl,
       state: result.state,
+      authMode: result.authMode,
+      oauthSignInRequired: result.oauthSignInRequired,
     });
   }
 

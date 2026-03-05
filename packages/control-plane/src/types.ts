@@ -61,6 +61,8 @@ export interface Env {
   MODAL_TOKEN_SECRET?: string;
   MODAL_API_SECRET?: string; // Shared secret for authenticating with Modal endpoints
   INTERNAL_CALLBACK_SECRET?: string; // For signing callbacks to slack-bot
+  SLACK_BOT_TOKEN?: string; // For identity sync jobs
+  LINEAR_API_KEY?: string; // For identity sync jobs
 
   // GitHub App secrets (for git operations)
   GITHUB_APP_ID?: string;
@@ -72,6 +74,7 @@ export interface Env {
   SCM_PROVIDER?: string; // Source control provider for this deployment (default: github)
   WORKER_URL?: string; // Base URL for the worker (for callbacks)
   WEB_APP_URL?: string; // Base URL for the web app (for PR links)
+  IDENTITY_LINK_SYNC_DOMAIN?: string; // Domain allowlist for identity sync (default: axioshq.com)
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
   MODAL_WORKSPACE?: string; // Modal workspace name (used in Modal endpoint URLs)
 

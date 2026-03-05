@@ -108,6 +108,32 @@ describe("buildCompletionBlocks", () => {
     expect(createPrButton).toBeUndefined();
   });
 
+  it("adds GitHub sign-in CTA when PR used app auth", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "pr",
+          url: "https://github.com/octocat/hello-world/pull/99",
+          label: "PR #99",
+          metadata: { number: 99, oauthSignInRequired: true },
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const actionElements = getActionElements(blocks);
+    const signInButton = actionElements.find((element) => element.action_id === "signin_github");
+
+    expect(signInButton).toBeDefined();
+    expect(signInButton?.url).toBe("https://app.openinspect.dev/api/auth/signin/github");
+  });
+
   it("does not add Create PR button for non-manual branch artifacts", () => {
     const response: AgentResponse = {
       ...BASE_RESPONSE,

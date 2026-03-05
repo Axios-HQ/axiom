@@ -1,4 +1,5 @@
 import { IdentityLinksStore, type IdentityProvider } from "../db/identity-links";
+import { runIdentityLinkSync } from "../identity-sync/service";
 import { type Route, type RequestContext, parsePattern, json, error } from "./shared";
 
 function isIdentityProvider(value: string): value is IdentityProvider {
@@ -57,10 +58,53 @@ async function handleUpsertIdentityLink(
     githubUserId: body.githubUserId.trim(),
     githubLogin: body.githubLogin.trim(),
     githubName: body.githubName ?? null,
-    createdBy: body.createdBy?.trim() || `github:${body.githubUserId.trim()}`,
+    createdBy: body.createdBy?.trim() || `manual:github:${body.githubUserId.trim()}`,
+    source: "manual_api",
+    isManual: true,
   });
 
   return json({ status: "ok" });
+}
+
+async function handleSyncIdentityLinks(
+  request: Request,
+  env: { DB: D1Database; SLACK_BOT_TOKEN?: string; LINEAR_API_KEY?: string },
+  _match: RegExpMatchArray,
+  _ctx: RequestContext
+): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as {
+    mode?: "dry-run" | "apply";
+    domain?: string;
+    overrideManual?: boolean;
+  };
+
+  const mode = body.mode === "dry-run" ? "dry-run" : "apply";
+  const domain = body.domain?.trim() || "axioshq.com";
+
+  if (!env.SLACK_BOT_TOKEN) {
+    return error("SLACK_BOT_TOKEN is required for identity sync", 500);
+  }
+  if (!env.LINEAR_API_KEY) {
+    return error("LINEAR_API_KEY is required for identity sync", 500);
+  }
+
+  const summary = await runIdentityLinkSync({
+    db: env.DB,
+    slackBotToken: env.SLACK_BOT_TOKEN,
+    linearApiKey: env.LINEAR_API_KEY,
+    domain,
+    mode,
+    overrideManual: Boolean(body.overrideManual),
+  });
+
+  return json({
+    status: "ok",
+    mode,
+    domain,
+    linked: summary.linked,
+    skipped: summary.skipped,
+    conflicted: summary.conflicted,
+  });
 }
 
 async function handleDeleteIdentityLink(
@@ -102,5 +146,10 @@ export const identityLinksRoutes: Route[] = [
     method: "DELETE",
     pattern: parsePattern("/identity-links/:provider/:externalUserId"),
     handler: handleDeleteIdentityLink,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/identity-links/sync"),
+    handler: handleSyncIdentityLinks,
   },
 ];
