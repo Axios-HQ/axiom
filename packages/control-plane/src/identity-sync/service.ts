@@ -227,7 +227,7 @@ export async function runIdentityLinkSync(input: IdentitySyncInput): Promise<Ide
     };
 
     if (input.mode === "dry-run") {
-      // Simulate upsert decisions without writing to DB.
+      // Simulate upsert decisions without writing to DB — mirrors upsertWithOutcome logic.
       const candidates: Array<{ provider: "slack" | "linear"; externalUserId: string }> = [
         { provider: "slack", externalUserId: slackUser.id },
         { provider: "linear", externalUserId: linearUser.id },
@@ -237,19 +237,25 @@ export async function runIdentityLinkSync(input: IdentitySyncInput): Promise<Ide
           candidate.provider,
           candidate.externalUserId
         );
-        if (existing?.isManual && preserveManual) {
-          const wouldConflict =
-            existing.githubUserId !== String(ghUser.id) ||
-            existing.githubLogin !== ghUser.login ||
-            (existing.githubName ?? null) !== (ghUser.name ?? null);
-          if (wouldConflict) {
-            result.conflicted += 1;
-          } else {
-            result.skipped += 1;
-          }
-        } else {
+
+        if (!existing) {
           result.linked += 1;
+          continue;
         }
+
+        const valuesMatch =
+          existing.githubUserId === String(ghUser.id) &&
+          existing.githubLogin === ghUser.login &&
+          (existing.githubName ?? null) === (ghUser.name ?? null);
+
+        if (existing.isManual && preserveManual) {
+          if (valuesMatch) result.skipped += 1;
+          else result.conflicted += 1;
+          continue;
+        }
+
+        if (valuesMatch) result.skipped += 1;
+        else result.linked += 1;
       }
       continue;
     }

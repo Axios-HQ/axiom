@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 function parseArgs(argv) {
   const args = {
     mode: null,
-    domain: "axioshq.com",
+    domain: process.env.IDENTITY_LINK_SYNC_DOMAIN?.trim().toLowerCase() || null,
     overrideManual: false,
   };
 
@@ -26,7 +26,7 @@ function parseArgs(argv) {
       if (!domainValue || domainValue.startsWith("--")) {
         throw new Error("--domain requires a value");
       }
-      args.domain = domainValue.trim();
+      args.domain = domainValue.trim().toLowerCase();
       i += 1;
     }
   }
@@ -49,6 +49,9 @@ async function main() {
 
   if (!args.mode) {
     throw new Error("Specify exactly one of --dry-run or --apply");
+  }
+  if (!args.domain) {
+    throw new Error("domain is required (--domain or IDENTITY_LINK_SYNC_DOMAIN env var)");
   }
 
   const baseUrl = process.env.CONTROL_PLANE_URL;

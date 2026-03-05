@@ -91,19 +91,28 @@ async function handleSyncIdentityLinks(
     return error("Unauthorized", 401);
   }
 
-  let body: { mode?: string; domain?: string; overrideManual?: boolean };
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as typeof body;
+    rawBody = await request.json();
   } catch {
     return error("Invalid JSON body", 400);
   }
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    return error("JSON body must be an object", 400);
+  }
+  const body = rawBody as { mode?: unknown; domain?: unknown; overrideManual?: unknown };
 
   if (body.mode !== "dry-run" && body.mode !== "apply") {
     return error("mode must be one of: dry-run, apply", 400);
   }
   const mode: "dry-run" | "apply" = body.mode;
 
-  const domain = body.domain?.trim() || env.IDENTITY_LINK_SYNC_DOMAIN?.trim();
+  if (body.overrideManual !== undefined && typeof body.overrideManual !== "boolean") {
+    return error("overrideManual must be a boolean", 400);
+  }
+
+  const domainFromBody = typeof body.domain === "string" ? body.domain.trim() : "";
+  const domain = domainFromBody || env.IDENTITY_LINK_SYNC_DOMAIN?.trim();
   if (!domain) {
     return error("domain is required (body.domain or IDENTITY_LINK_SYNC_DOMAIN env var)", 400);
   }
@@ -121,7 +130,7 @@ async function handleSyncIdentityLinks(
     linearApiKey: env.LINEAR_API_KEY,
     domain,
     mode,
-    overrideManual: Boolean(body.overrideManual),
+    overrideManual: body.overrideManual === true,
   });
 
   return json({
