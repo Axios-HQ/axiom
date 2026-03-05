@@ -12,6 +12,7 @@ import {
 } from "./source-control";
 import { SessionIndexStore } from "./db/session-index";
 import { UserScmTokenStore, DEFAULT_TOKEN_LIFETIME_MS } from "./db/user-scm-tokens";
+import { IdentityLinksStore, type IdentityProvider } from "./db/identity-links";
 
 import {
   getValidModelOrDefault,
@@ -39,6 +40,7 @@ import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
 import { mediaRoutes } from "./routes/media";
+import { identityLinksRoutes } from "./routes/identity-links";
 
 const logger = createLogger("router");
 
@@ -59,6 +61,19 @@ const SESSION_STATUSES: SessionStatus[] = [
 function parseSessionStatus(value: string | null): SessionStatus | undefined {
   if (!value) return undefined;
   return SESSION_STATUSES.includes(value as SessionStatus) ? (value as SessionStatus) : undefined;
+}
+
+function parseExternalIdentity(
+  userId: string | undefined
+): { provider: IdentityProvider; externalUserId: string } | null {
+  if (!userId) return null;
+  if (userId.startsWith("linear:")) {
+    return { provider: "linear", externalUserId: userId.slice("linear:".length) };
+  }
+  if (userId.startsWith("slack:")) {
+    return { provider: "slack", externalUserId: userId.slice("slack:".length) };
+  }
+  return null;
 }
 
 /**
@@ -438,6 +453,9 @@ const routes: Route[] = [
   // Integration settings
   ...integrationSettingsRoutes,
 
+  // Identity links (Slack/Linear -> GitHub)
+  ...identityLinksRoutes,
+
   // Repo image builds
   ...repoImageRoutes,
 
@@ -620,6 +638,7 @@ async function handleCreateSession(
   const body = (await request.json()) as CreateSessionRequest & {
     scmToken?: string;
     userId?: string;
+    scmUserId?: string;
     scmLogin?: string;
     scmName?: string;
     scmEmail?: string;
@@ -661,11 +680,50 @@ async function handleCreateSession(
   }
 
   const userId = body.userId || "anonymous";
-  const scmLogin = body.scmLogin;
-  const scmName = body.scmName;
+  let scmUserId = body.scmUserId;
+  let scmLogin = body.scmLogin;
+  let scmName = body.scmName;
   const scmEmail = body.scmEmail;
   const scmToken = body.scmToken;
   let scmTokenEncrypted: string | null = null;
+
+  // For Slack/Linear-triggered sessions, enrich participant identity with a linked GitHub user.
+  if (!scmLogin) {
+    const externalIdentity = parseExternalIdentity(userId);
+    if (externalIdentity) {
+      try {
+        const identityLink = await new IdentityLinksStore(env.DB).getByProviderExternal(
+          externalIdentity.provider,
+          externalIdentity.externalUserId
+        );
+        if (identityLink) {
+          scmLogin = identityLink.githubLogin;
+          scmUserId = identityLink.githubUserId;
+          scmName = scmName || identityLink.githubName || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            provider: externalIdentity.provider,
+            external_user_id: externalIdentity.externalUserId,
+            github_user_id: identityLink.githubUserId,
+            github_login: identityLink.githubLogin,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+        }
+      } catch (e) {
+        logger.warn("identity_link.lookup_failed", {
+          event: "identity_link.lookup_failed",
+          provider: externalIdentity.provider,
+          external_user_id: externalIdentity.externalUserId,
+          user_id: userId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+  }
 
   // If SCM token provided, encrypt it
   if (scmToken && env.TOKEN_ENCRYPTION_KEY) {
@@ -711,6 +769,7 @@ async function handleCreateSession(
           model,
           reasoningEffort,
           userId,
+          scmUserId,
           scmLogin,
           scmName,
           scmEmail,
