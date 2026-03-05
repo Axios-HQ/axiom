@@ -214,6 +214,13 @@ export function formatAgentResponse(agentResponse: AgentResponse): string {
   const prArtifact = agentResponse.artifacts.find((a) => a.type === "pr" && a.url);
   if (prArtifact) {
     parts.push(`**Pull request opened:** ${prArtifact.url}`);
+    const needsSignIn =
+      prArtifact.metadata &&
+      typeof prArtifact.metadata === "object" &&
+      prArtifact.metadata.oauthSignInRequired === true;
+    if (needsSignIn) {
+      parts.push("Sign in with GitHub once to open future PRs as yourself.");
+    }
   }
 
   // Files edited/created

@@ -7,6 +7,9 @@ type IdentityLinkRow = {
   github_user_id: string;
   github_login: string;
   github_name: string | null;
+  source: string;
+  source_metadata: string | null;
+  is_manual: number;
   created_by: string;
   created_at: number;
   updated_at: number;
@@ -15,9 +18,9 @@ type IdentityLinkRow = {
 const QUERY_PATTERNS = {
   UPSERT: /^INSERT INTO identity_links/,
   GET_ONE:
-    /^SELECT provider, external_user_id, github_user_id, github_login, github_name, created_by, created_at, updated_at FROM identity_links WHERE provider = \? AND external_user_id = \?/,
+    /^SELECT provider, external_user_id, github_user_id, github_login, github_name, created_by, created_at, updated_at , source, source_metadata, is_manual FROM identity_links WHERE provider = \? AND external_user_id = \?/,
   LIST_FOR_USER:
-    /^SELECT provider, external_user_id, github_user_id, github_login, github_name, created_by, created_at, updated_at FROM identity_links WHERE github_user_id = \? ORDER BY updated_at DESC/,
+    /^SELECT provider, external_user_id, github_user_id, github_login, github_name, created_by, created_at, updated_at , source, source_metadata, is_manual FROM identity_links WHERE github_user_id = \? ORDER BY updated_at DESC/,
   DELETE: /^DELETE FROM identity_links WHERE provider = \? AND external_user_id = \?/,
 } as const;
 
@@ -57,19 +60,44 @@ class FakeD1Database {
   run(query: string, args: unknown[]) {
     const normalized = normalizeQuery(query);
     if (QUERY_PATTERNS.UPSERT.test(normalized)) {
+      // Args: provider, externalUserId, githubUserId, githubLogin, githubName,
+      //       source, sourceMetadata, isManual, createdBy, createdAt, updatedAt,
+      //       preserveManualFlag (extra param for WHERE NOT guard)
       const [
         provider,
         externalUserId,
         githubUserId,
         githubLogin,
         githubName,
+        source,
+        sourceMetadata,
+        isManual,
         createdBy,
         createdAt,
         updatedAt,
-      ] = args as [IdentityProvider, string, string, string, string | null, string, number, number];
+        preserveManualFlag,
+      ] = args as [
+        IdentityProvider,
+        string,
+        string,
+        string,
+        string | null,
+        string,
+        string | null,
+        number,
+        string,
+        number,
+        number,
+        number,
+      ];
 
       const key = `${provider}:${externalUserId}`;
       const existing = this.rows.get(key);
+
+      // Simulate the WHERE NOT (is_manual = 1 AND preserveManualFlag = 1) guard.
+      if (existing && existing.is_manual === 1 && preserveManualFlag === 1) {
+        return { meta: { changes: 0 } };
+      }
 
       this.rows.set(key, {
         provider,
@@ -77,6 +105,9 @@ class FakeD1Database {
         github_user_id: githubUserId,
         github_login: githubLogin,
         github_name: githubName,
+        source,
+        source_metadata: sourceMetadata,
+        is_manual: isManual,
         created_by: existing?.created_by ?? createdBy,
         created_at: existing?.created_at ?? createdAt,
         updated_at: updatedAt,
@@ -146,6 +177,8 @@ describe("IdentityLinksStore", () => {
     expect(link).not.toBeNull();
     expect(link?.githubLogin).toBe("josh");
     expect(link?.githubUserId).toBe("gh_1");
+    expect(link?.source).toBe("manual");
+    expect(link?.isManual).toBe(false);
   });
 
   it("updates existing link on conflict", async () => {
@@ -168,6 +201,60 @@ describe("IdentityLinksStore", () => {
     expect(link?.githubUserId).toBe("gh_2");
     expect(link?.githubLogin).toBe("josh2");
     expect(link?.createdBy).toBe("github:gh_1");
+  });
+
+  it("preserves manual links when preserveManual is true", async () => {
+    await store.upsert({
+      provider: "slack",
+      externalUserId: "U123",
+      githubUserId: "gh_1",
+      githubLogin: "josh",
+      createdBy: "manual:admin",
+      source: "manual_api",
+      isManual: true,
+    });
+
+    const outcome = await store.upsertWithOutcome({
+      provider: "slack",
+      externalUserId: "U123",
+      githubUserId: "gh_2",
+      githubLogin: "josh2",
+      createdBy: "sync:identity_links",
+      source: "identity_sync",
+      isManual: false,
+      preserveManual: true,
+    });
+
+    expect(outcome).toBe("conflicted");
+    const link = await store.getByProviderExternal("slack", "U123");
+    expect(link?.githubUserId).toBe("gh_1");
+    expect(link?.isManual).toBe(true);
+  });
+
+  it("returns skipped for identical non-manual re-upsert", async () => {
+    await store.upsert({
+      provider: "slack",
+      externalUserId: "U456",
+      githubUserId: "gh_1",
+      githubLogin: "josh",
+      githubName: "Josh",
+      createdBy: "sync:identity_links",
+      source: "identity_sync",
+      isManual: false,
+    });
+
+    const outcome = await store.upsertWithOutcome({
+      provider: "slack",
+      externalUserId: "U456",
+      githubUserId: "gh_1",
+      githubLogin: "josh",
+      githubName: "Josh",
+      createdBy: "sync:identity_links",
+      source: "identity_sync",
+      isManual: false,
+    });
+
+    expect(outcome).toBe("skipped");
   });
 
   it("lists links by github user", async () => {

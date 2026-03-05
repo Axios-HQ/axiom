@@ -199,6 +199,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
@@ -206,6 +208,11 @@ describe("SessionPullRequestService", () => {
     expect(createPrCall[1].body).toContain("Requested by user-1");
     expect(createPrCall[1].reviewers).toBeUndefined();
     expect(harness.deps.broadcastArtifactCreated).toHaveBeenCalledTimes(1);
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("app");
+    expect(metadata.oauthSignInRequired).toBe(true);
   });
 
   it("creates PR with OAuth token and stores PR artifact", async () => {
@@ -218,6 +225,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "oauth",
+      oauthSignInRequired: false,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
@@ -233,6 +242,11 @@ describe("SessionPullRequestService", () => {
       url: "https://github.com/acme/web/pull/42",
       prNumber: 42,
     });
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("oauth");
+    expect(metadata.oauthSignInRequired).toBe(false);
   });
 
   it("forwards draft flag when creating a PR", async () => {
@@ -279,6 +293,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
   });
