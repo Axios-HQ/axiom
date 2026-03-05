@@ -1980,6 +1980,8 @@ export class SessionDO extends DurableObject<Env> {
       ...body,
       baseBranch: body.baseBranch || session.base_branch,
       promptingUserId: promptingParticipant.user_id,
+      promptingScmLogin: promptingParticipant.scm_login,
+      promptingScmName: promptingParticipant.scm_name,
       promptingAuth: authResolution.auth,
       sessionUrl,
     });

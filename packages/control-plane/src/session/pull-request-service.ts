@@ -20,6 +20,8 @@ export interface CreatePullRequestInput {
   headBranch?: string;
   draft?: boolean;
   promptingUserId: string;
+  promptingScmLogin?: string | null;
+  promptingScmName?: string | null;
   promptingAuth: SourceControlAuthContext | null;
   sessionUrl: string;
 }
@@ -74,6 +76,18 @@ export interface PullRequestServiceDeps {
  */
 export class SessionPullRequestService {
   constructor(private readonly deps: PullRequestServiceDeps) {}
+
+  private formatRequesterIdentity(input: CreatePullRequestInput): string {
+    if (input.promptingScmLogin && input.promptingScmLogin.trim().length > 0) {
+      return `@${input.promptingScmLogin.trim()}`;
+    }
+
+    if (input.promptingScmName && input.promptingScmName.trim().length > 0) {
+      return input.promptingScmName.trim();
+    }
+
+    return input.promptingUserId;
+  }
 
   /**
    * Creates a pull request when OAuth auth is available, or falls back
@@ -174,7 +188,15 @@ export class SessionPullRequestService {
       // (e.g. sessions triggered from Linear or other integrations without user GitHub OAuth)
       const prAuth = input.promptingAuth ?? appAuth;
 
-      const fullBody = input.body + `\n\n---\n*Created with [Open-Inspect](${input.sessionUrl})*`;
+      const requesterIdentity = this.formatRequesterIdentity(input);
+      const fullBody =
+        input.body +
+        `\n\n---\nRequested by ${requesterIdentity}\n\n*Created with [Open-Inspect](${input.sessionUrl})*`;
+
+      const reviewers =
+        prAuth.authType === "app" && input.promptingScmLogin
+          ? [input.promptingScmLogin]
+          : undefined;
 
       const prResult = await this.deps.sourceControlProvider.createPullRequest(prAuth, {
         repository: repoInfo,
@@ -183,6 +205,7 @@ export class SessionPullRequestService {
         sourceBranch: headBranch,
         targetBranch: baseBranch,
         draft: input.draft,
+        reviewers,
       });
 
       const artifactId = this.deps.generateId();
