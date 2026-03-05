@@ -22,6 +22,7 @@ import {
   addReaction,
   getChannelInfo,
   getThreadMessages,
+  getUserInfo,
   publishView,
 } from "./utils/slack-client";
 import { createClassifier } from "./classifier";
@@ -71,7 +72,8 @@ async function createSession(
   title: string | undefined,
   model: string,
   reasoningEffort: string | undefined,
-  traceId?: string
+  traceId?: string,
+  identity?: { userId?: string; scmEmail?: string; scmName?: string }
 ): Promise<{ sessionId: string; status: string } | null> {
   const startTime = Date.now();
   const base = {
@@ -92,6 +94,9 @@ async function createSession(
         title: title || `Slack: ${repo.name}`,
         model,
         reasoningEffort,
+        ...(identity?.userId ? { userId: identity.userId } : {}),
+        ...(identity?.scmEmail ? { scmEmail: identity.scmEmail } : {}),
+        ...(identity?.scmName ? { scmName: identity.scmName } : {}),
       }),
     });
 
@@ -565,6 +570,19 @@ async function startSessionAndSendPrompt(
       ? userPrefs.reasoningEffort
       : getDefaultReasoningEffort(model);
 
+  // Resolve Slack user identity (email + display name) for PR attribution
+  let scmEmail: string | undefined;
+  let scmName: string | undefined;
+  try {
+    const userInfoRes = await getUserInfo(env.SLACK_BOT_TOKEN, userId);
+    if (userInfoRes.ok && userInfoRes.user?.profile) {
+      scmEmail = userInfoRes.user.profile.email;
+      scmName = userInfoRes.user.profile.real_name || userInfoRes.user.real_name;
+    }
+  } catch {
+    // Best effort — don't block session creation on user info failure
+  }
+
   // Create session via control plane with user's preferred model and reasoning effort
   const session = await createSession(
     env,
@@ -572,7 +590,12 @@ async function startSessionAndSendPrompt(
     messageText.slice(0, 100),
     model,
     reasoningEffort,
-    traceId
+    traceId,
+    {
+      userId: `slack:${userId}`,
+      scmEmail,
+      scmName,
+    }
   );
 
   if (!session) {

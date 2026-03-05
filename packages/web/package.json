@@ -13,7 +13,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "agent:login": "tsx scripts/agent-login.ts"
   },
   "dependencies": {
     "@open-inspect/shared": "file:../shared",

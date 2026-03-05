@@ -12,6 +12,11 @@ import {
 } from "./source-control";
 import { SessionIndexStore } from "./db/session-index";
 import { UserScmTokenStore, DEFAULT_TOKEN_LIFETIME_MS } from "./db/user-scm-tokens";
+import { IdentityLinksStore, type IdentityProvider } from "./db/identity-links";
+import {
+  resolveGitHubUserById,
+  resolveGitHubUserByEmail,
+} from "./source-control/github-user-resolver";
 
 import {
   getValidModelOrDefault,
@@ -39,6 +44,7 @@ import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
 import { mediaRoutes } from "./routes/media";
+import { identityLinksRoutes } from "./routes/identity-links";
 
 const logger = createLogger("router");
 
@@ -59,6 +65,19 @@ const SESSION_STATUSES: SessionStatus[] = [
 function parseSessionStatus(value: string | null): SessionStatus | undefined {
   if (!value) return undefined;
   return SESSION_STATUSES.includes(value as SessionStatus) ? (value as SessionStatus) : undefined;
+}
+
+function parseExternalIdentity(
+  userId: string | undefined
+): { provider: IdentityProvider; externalUserId: string } | null {
+  if (!userId) return null;
+  if (userId.startsWith("linear:")) {
+    return { provider: "linear", externalUserId: userId.slice("linear:".length) };
+  }
+  if (userId.startsWith("slack:")) {
+    return { provider: "slack", externalUserId: userId.slice("slack:".length) };
+  }
+  return null;
 }
 
 /**
@@ -108,6 +127,7 @@ const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
  */
 const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/pr$/, // PR creation from sandbox
+  /^\/sessions\/[^/]+\/git-push$/, // Push commits to remote branch from sandbox
   /^\/sessions\/[^/]+\/openai-token-refresh$/, // OpenAI token refresh from sandbox
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
@@ -385,6 +405,11 @@ const routes: Route[] = [
   },
   {
     method: "POST",
+    pattern: parsePattern("/sessions/:id/git-push"),
+    handler: handleGitPush,
+  },
+  {
+    method: "POST",
     pattern: parsePattern("/sessions/:id/openai-token-refresh"),
     handler: handleOpenAITokenRefresh,
   },
@@ -437,6 +462,9 @@ const routes: Route[] = [
 
   // Integration settings
   ...integrationSettingsRoutes,
+
+  // Identity links (Slack/Linear -> GitHub)
+  ...identityLinksRoutes,
 
   // Repo image builds
   ...repoImageRoutes,
@@ -620,6 +648,7 @@ async function handleCreateSession(
   const body = (await request.json()) as CreateSessionRequest & {
     scmToken?: string;
     userId?: string;
+    scmUserId?: string;
     scmLogin?: string;
     scmName?: string;
     scmEmail?: string;
@@ -661,11 +690,151 @@ async function handleCreateSession(
   }
 
   const userId = body.userId || "anonymous";
-  const scmLogin = body.scmLogin;
-  const scmName = body.scmName;
+  let scmUserId = body.scmUserId;
+  let scmLogin = body.scmLogin;
+  let scmName = body.scmName;
   const scmEmail = body.scmEmail;
   const scmToken = body.scmToken;
   let scmTokenEncrypted: string | null = null;
+
+  // For Slack/Linear-triggered sessions, resolve the GitHub identity.
+  // Resolution order:
+  //   1. Existing identity_link (cached from a previous resolution or manual link)
+  //   2. scmUserId from Linear's gitHubUserId field → GitHub API GET /user/:id
+  //   3. scmEmail from Slack users.info → GitHub API search by email
+  // Successful resolutions are auto-persisted to identity_links for future lookups.
+  if (!scmLogin) {
+    const identityStore = new IdentityLinksStore(env.DB);
+    const externalIdentity = parseExternalIdentity(userId);
+
+    // 1. Check cached identity link
+    if (externalIdentity) {
+      try {
+        const identityLink = await identityStore.getByProviderExternal(
+          externalIdentity.provider,
+          externalIdentity.externalUserId
+        );
+        if (identityLink) {
+          scmLogin = identityLink.githubLogin;
+          scmUserId = identityLink.githubUserId;
+          scmName = scmName || identityLink.githubName || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "cached",
+            provider: externalIdentity.provider,
+            external_user_id: externalIdentity.externalUserId,
+            github_login: identityLink.githubLogin,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+        }
+      } catch (e) {
+        logger.warn("identity_link.lookup_failed", {
+          event: "identity_link.lookup_failed",
+          provider: externalIdentity.provider,
+          external_user_id: externalIdentity.externalUserId,
+          user_id: userId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+
+    // 2. If still no login but we have a GitHub user ID (from Linear's gitHubUserId),
+    //    resolve it via the GitHub API.
+    if (!scmLogin && scmUserId) {
+      try {
+        const ghUser = await resolveGitHubUserById(scmUserId);
+        if (ghUser) {
+          scmLogin = ghUser.login;
+          scmName = scmName || ghUser.name || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "github_user_id",
+            github_user_id: scmUserId,
+            github_login: ghUser.login,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+
+          // Auto-persist the link for future lookups
+          if (externalIdentity) {
+            await identityStore
+              .upsert({
+                provider: externalIdentity.provider,
+                externalUserId: externalIdentity.externalUserId,
+                githubUserId: scmUserId,
+                githubLogin: ghUser.login,
+                githubName: ghUser.name,
+                createdBy: "auto:github_user_id",
+              })
+              .catch((e) =>
+                logger.warn("identity_link.auto_upsert_failed", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+          }
+        }
+      } catch (e) {
+        logger.warn("identity_link.github_user_lookup_failed", {
+          github_user_id: scmUserId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+
+    // 3. If still no login but we have an email (from Slack users.info),
+    //    search GitHub for a user with that email.
+    if (!scmLogin && scmEmail) {
+      try {
+        const ghUser = await resolveGitHubUserByEmail(scmEmail);
+        if (ghUser) {
+          scmLogin = ghUser.login;
+          scmUserId = scmUserId || String(ghUser.id);
+          scmName = scmName || ghUser.name || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "email",
+            email: scmEmail,
+            github_login: ghUser.login,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+
+          // Auto-persist the link
+          if (externalIdentity) {
+            await identityStore
+              .upsert({
+                provider: externalIdentity.provider,
+                externalUserId: externalIdentity.externalUserId,
+                githubUserId: String(ghUser.id),
+                githubLogin: ghUser.login,
+                githubName: ghUser.name,
+                createdBy: "auto:email",
+              })
+              .catch((e) =>
+                logger.warn("identity_link.auto_upsert_failed", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+          }
+        }
+      } catch (e) {
+        logger.warn("identity_link.email_lookup_failed", {
+          email: scmEmail,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+  }
 
   // If SCM token provided, encrypt it
   if (scmToken && env.TOKEN_ENCRYPTION_KEY) {
@@ -711,6 +880,7 @@ async function handleCreateSession(
           model,
           reasoningEffort,
           userId,
+          scmUserId,
           scmLogin,
           scmName,
           scmEmail,
@@ -1008,6 +1178,33 @@ async function handleCreatePR(
   );
 
   return response;
+}
+
+async function handleGitPush(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const body = (await request.json()) as { headBranch?: string };
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/git-push",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headBranch: body.headBranch }),
+      },
+      ctx
+    )
+  );
 }
 
 async function handleOpenAITokenRefresh(

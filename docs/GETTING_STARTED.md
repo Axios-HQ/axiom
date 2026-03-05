@@ -764,6 +764,39 @@ This occurs on first deployment. Follow the two-phase deployment process:
 1. Deploy with `enable_durable_object_bindings = false` and `enable_service_bindings = false`
 2. After success, set both to `true` and run `terraform apply` again
 
+### Link Slack/Linear users to GitHub for PR attribution
+
+When sessions are triggered from Slack or Linear, Open-Inspect can map those external user IDs to a
+GitHub identity. This enables better PR attribution (requester footer, reviewer request, and user
+OAuth reuse when available).
+
+Use the web API (authenticated as the GitHub user):
+
+```bash
+# Link a Linear user ID to your GitHub account
+curl -X POST "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"linear","externalUserId":"<linear-app-user-id>"}'
+
+# Link a Slack user ID to your GitHub account
+curl -X POST "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"slack","externalUserId":"U01234567"}'
+
+# List your links
+curl "$WEB_URL/api/identity-links" -b "<your-session-cookie>"
+
+# Remove a link
+curl -X DELETE "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"slack","externalUserId":"U01234567"}'
+```
+
+For Linear webhooks, the `externalUserId` should be the `appUserId` from the webhook payload.
+
 ---
 
 ## Security Notes

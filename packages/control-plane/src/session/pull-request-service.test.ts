@@ -203,6 +203,8 @@ describe("SessionPullRequestService", () => {
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(createPrCall[0]).toEqual({ authType: "app", token: "app-token" });
+    expect(createPrCall[1].body).toContain("Requested by user-1");
+    expect(createPrCall[1].reviewers).toBeUndefined();
     expect(harness.deps.broadcastArtifactCreated).toHaveBeenCalledTimes(1);
   });
 
@@ -221,6 +223,7 @@ describe("SessionPullRequestService", () => {
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(createPrCall[0]).toEqual({ authType: "oauth", token: "user-token" });
+    expect(createPrCall[1].body).toContain("Requested by user-1");
     expect(createPrCall[1].body).toContain(
       "*Created with [Open-Inspect](https://app.example.com/session/session-name-1)*"
     );
@@ -243,6 +246,17 @@ describe("SessionPullRequestService", () => {
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(createPrCall[1].draft).toBe(true);
+  });
+
+  it("requests review from prompting scm login when using app auth", async () => {
+    await harness.service.createPullRequest(
+      createInput({ promptingAuth: null, promptingScmLogin: "josh" })
+    );
+
+    const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(createPrCall[1].reviewers).toEqual(["josh"]);
+    expect(createPrCall[1].body).toContain("Requested by @josh");
   });
 
   it("ignores prior manual branch artifact and creates PR", async () => {

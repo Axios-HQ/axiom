@@ -14,6 +14,7 @@ import {
   getLinearClient,
   emitAgentActivity,
   fetchIssueDetails,
+  fetchUserIdentity,
   updateAgentSession,
   getRepoSuggestions,
 } from "./utils/linear-client";
@@ -236,6 +237,7 @@ async function handleNewSession(
   let repoName: string | null = null;
   let repoFullName: string | null = null;
   let classificationReasoning: string | null = null;
+  let classificationPath: string | null = null;
 
   // 1. Check project→repo mapping FIRST
   if (projectInfo?.id) {
@@ -246,6 +248,7 @@ async function handleNewSession(
       repoName = mapped.name;
       repoFullName = `${mapped.owner}/${mapped.name}`;
       classificationReasoning = `Project "${projectInfo.name}" is mapped to ${repoFullName}`;
+      classificationPath = "project_mapping";
     }
   }
 
@@ -260,6 +263,7 @@ async function handleNewSession(
         repoName = staticRepo.name;
         repoFullName = `${staticRepo.owner}/${staticRepo.name}`;
         classificationReasoning = `Team static mapping`;
+        classificationPath = "team_mapping";
       }
     }
   }
@@ -281,6 +285,7 @@ async function handleNewSession(
         repoName = name;
         repoFullName = topSuggestion.repositoryFullName;
         classificationReasoning = `Linear suggested ${repoFullName} (confidence: ${Math.round(topSuggestion.confidence * 100)}%)`;
+        classificationPath = "linear_suggestions";
       }
     }
   }
@@ -316,11 +321,13 @@ async function handleNewSession(
         body: `I couldn't determine which repository to work on.\n\n${classification.reasoning}\n\n**Available repositories:**\n${altList || "None available"}\n\nPlease reply with the repository name, or configure a project→repo mapping.`,
       });
 
-      log.warn("agent_session.classification_uncertain", {
+      log.warn("agent_session.repo_classification_uncertain", {
         trace_id: traceId,
         issue_identifier: issue.identifier,
+        classification_path: "llm_fallback",
         confidence: classification.confidence,
         reasoning: classification.reasoning,
+        alternatives: (classification.alternatives || []).map((r) => r.fullName),
       });
       return;
     }
@@ -329,6 +336,7 @@ async function handleNewSession(
     repoName = classification.repo.name;
     repoFullName = classification.repo.fullName;
     classificationReasoning = classification.reasoning;
+    classificationPath = "llm_fallback";
   }
 
   if (!repoOwner || !repoName || !repoFullName) {
@@ -360,11 +368,34 @@ async function handleNewSession(
     return;
   }
 
+  // ─── Resolve user identity (for PR attribution) ────────────────────────
+
+  let scmUserId: string | undefined;
+  let scmName: string | undefined;
+  let scmEmail: string | undefined;
+  const appUserId = webhook.appUserId;
+
+  if (appUserId) {
+    const userIdentity = await fetchUserIdentity(client, appUserId);
+    if (userIdentity) {
+      scmName = userIdentity.displayName || userIdentity.name;
+      scmEmail = userIdentity.email;
+      if (userIdentity.gitHubUserId) {
+        scmUserId = userIdentity.gitHubUserId;
+        log.info("agent_session.user_identity_resolved", {
+          trace_id: traceId,
+          linear_user_id: appUserId,
+          github_user_id: userIdentity.gitHubUserId,
+          email: userIdentity.email,
+        });
+      }
+    }
+  }
+
   // ─── Resolve model ────────────────────────────────────────────────────
 
   let userModel: string | undefined;
   let userReasoningEffort: string | undefined;
-  const appUserId = webhook.appUserId;
   if (appUserId) {
     const prefs = await getUserPreferences(env, appUserId);
     if (prefs?.model) {
@@ -409,6 +440,10 @@ async function handleNewSession(
       title: `${issue.identifier}: ${issue.title}`,
       model,
       reasoningEffort,
+      userId: `linear:${appUserId}`,
+      scmUserId,
+      scmName,
+      scmEmail,
     }),
   });
 
@@ -519,6 +554,7 @@ async function handleNewSession(
     issue_identifier: issue.identifier,
     repo: repoFullName,
     model,
+    classification_path: classificationPath,
     classification_reasoning: classificationReasoning,
     duration_ms: Date.now() - startTime,
   });

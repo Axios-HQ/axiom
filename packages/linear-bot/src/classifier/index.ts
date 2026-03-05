@@ -158,6 +158,12 @@ export async function classifyRepo(
   const repos = await getAvailableRepos(env, traceId);
 
   if (repos.length === 0) {
+    log.warn("classifier.classify", {
+      trace_id: traceId,
+      method: "shortcut",
+      outcome: "no_repos",
+      repo_count: 0,
+    });
     return {
       repo: null,
       confidence: "low",
@@ -167,6 +173,13 @@ export async function classifyRepo(
   }
 
   if (repos.length === 1) {
+    log.info("classifier.classify", {
+      trace_id: traceId,
+      method: "shortcut",
+      outcome: "single_repo",
+      repo: repos[0].fullName,
+      confidence: "high",
+    });
     return {
       repo: repos[0],
       confidence: "high",
@@ -174,6 +187,13 @@ export async function classifyRepo(
       needsClarification: false,
     };
   }
+
+  const classifyInput = {
+    issue_title: issueTitle,
+    labels,
+    project_name: projectName ?? null,
+    repo_count: repos.length,
+  };
 
   try {
     const prompt = await buildClassificationPrompt(
@@ -207,21 +227,37 @@ export async function classifyRepo(
       if (alt && alt.id !== matchedRepo?.id) alternatives.push(alt);
     }
 
+    const needsClarification =
+      !matchedRepo ||
+      result.confidence === "low" ||
+      (result.confidence === "medium" && alternatives.length > 0);
+
+    log.info("classifier.classify", {
+      trace_id: traceId,
+      method: "llm",
+      outcome: needsClarification ? "needs_clarification" : "success",
+      repo: matchedRepo?.fullName ?? null,
+      confidence: result.confidence,
+      reasoning: result.reasoning,
+      alternatives: alternatives.map((r) => r.fullName),
+      needs_clarification: needsClarification,
+      ...classifyInput,
+    });
+
     return {
       repo: matchedRepo,
       confidence: result.confidence,
       reasoning: result.reasoning,
       alternatives: alternatives.length > 0 ? alternatives : undefined,
-      needsClarification:
-        !matchedRepo ||
-        result.confidence === "low" ||
-        (result.confidence === "medium" && alternatives.length > 0),
+      needsClarification,
     };
   } catch (e) {
     log.error("classifier.classify", {
       trace_id: traceId,
+      method: "llm",
       outcome: "error",
       error: e instanceof Error ? e : new Error(String(e)),
+      ...classifyInput,
     });
 
     return {

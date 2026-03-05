@@ -8,10 +8,16 @@ import {
   KeyboardIcon,
   DataControlsIcon,
   IntegrationsIcon,
+  UserIcon,
   ChevronRightIcon,
 } from "@/components/ui/icons";
 
 const NAV_ITEMS = [
+  {
+    id: "account",
+    label: "Account",
+    icon: UserIcon,
+  },
   {
     id: "secrets",
     label: "Secrets",

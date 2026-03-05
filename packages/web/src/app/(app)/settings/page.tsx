@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSidebarContext } from "@/components/sidebar-layout";
 import { SettingsNav, type SettingsCategory } from "@/components/settings/settings-nav";
+import { AccountSettings } from "@/components/settings/account-settings";
 import { SecretsSettings } from "@/components/settings/secrets-settings";
 import { ModelsSettings } from "@/components/settings/models-settings";
 import { DataControlsSettings } from "@/components/settings/data-controls-settings";
@@ -15,6 +16,7 @@ import { SidebarIcon, BackIcon } from "@/components/ui/icons";
 import { useIsMobile } from "@/hooks/use-media-query";
 
 const CATEGORY_LABELS: Record<SettingsCategory, string> = {
+  account: "Account",
   secrets: "Secrets",
   models: "Models",
   images: "Images",
@@ -24,6 +26,7 @@ const CATEGORY_LABELS: Record<SettingsCategory, string> = {
 };
 
 const VALID_CATEGORIES = new Set<string>([
+  "account",
   "secrets",
   "models",
   "images",
@@ -40,7 +43,7 @@ export default function SettingsPage() {
   const { isOpen, toggle } = useSidebarContext();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const initialCategory = isValidCategory(tabParam) ? tabParam : "secrets";
+  const initialCategory = isValidCategory(tabParam) ? tabParam : "account";
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<"list" | "detail">(
@@ -57,6 +60,7 @@ export default function SettingsPage() {
 
   const content = (
     <>
+      {activeCategory === "account" && <AccountSettings />}
       {activeCategory === "secrets" && <SecretsSettings />}
       {activeCategory === "models" && <ModelsSettings />}
       {activeCategory === "images" && <ImagesSettings />}

@@ -364,6 +364,126 @@ export async function postIssueComment(
   return { success: result.data?.commentCreate?.success ?? false };
 }
 
+// ─── User Identity ───────────────────────────────────────────────────────────
+
+export interface LinearUserIdentity {
+  id: string;
+  name: string;
+  email: string;
+  displayName: string;
+  gitHubUserId: string | null;
+}
+
+/**
+ * Fetch a Linear user's identity including their linked GitHub user ID.
+ * This enables automatic identity linking without requiring manual setup.
+ */
+export async function fetchUserIdentity(
+  client: LinearApiClient,
+  userId: string
+): Promise<LinearUserIdentity | null> {
+  try {
+    const data = await linearGraphQL(
+      client,
+      `
+      query UserIdentity($id: String!) {
+        user(id: $id) {
+          id
+          name
+          email
+          displayName
+          gitHubUserId
+        }
+      }
+    `,
+      { id: userId }
+    );
+
+    const user = (data as { data?: { user?: Record<string, unknown> } }).data?.user;
+    if (!user) return null;
+
+    return {
+      id: user.id as string,
+      name: user.name as string,
+      email: user.email as string,
+      displayName: user.displayName as string,
+      gitHubUserId: (user.gitHubUserId as string) ?? null,
+    };
+  } catch (err) {
+    log.error("linear.fetch_user_identity", {
+      user_id: userId,
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
+    return null;
+  }
+}
+
+/**
+ * Fetch all users in the Linear workspace with their GitHub user IDs.
+ * Used for bulk identity sync.
+ */
+export async function fetchAllUsers(client: LinearApiClient): Promise<LinearUserIdentity[]> {
+  const users: LinearUserIdentity[] = [];
+  let hasMore = true;
+  let cursor: string | undefined;
+
+  while (hasMore) {
+    try {
+      const data = await linearGraphQL(
+        client,
+        `
+        query AllUsers($after: String) {
+          users(first: 50, after: $after) {
+            nodes {
+              id
+              name
+              email
+              displayName
+              gitHubUserId
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      `,
+        { after: cursor ?? null }
+      );
+
+      const result = data as {
+        data?: {
+          users?: {
+            nodes: Array<Record<string, unknown>>;
+            pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          };
+        };
+      };
+
+      const nodes = result.data?.users?.nodes || [];
+      for (const u of nodes) {
+        users.push({
+          id: u.id as string,
+          name: u.name as string,
+          email: u.email as string,
+          displayName: u.displayName as string,
+          gitHubUserId: (u.gitHubUserId as string) ?? null,
+        });
+      }
+
+      hasMore = result.data?.users?.pageInfo.hasNextPage ?? false;
+      cursor = result.data?.users?.pageInfo.endCursor ?? undefined;
+    } catch (err) {
+      log.error("linear.fetch_all_users", {
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+      break;
+    }
+  }
+
+  return users;
+}
+
 // ─── Internal Helpers ────────────────────────────────────────────────────────
 
 async function getWorkspaceInfo(accessToken: string): Promise<{ id: string; name: string }> {

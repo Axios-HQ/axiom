@@ -198,6 +198,13 @@ export class RepoClassifier {
 
     // If no repos available, return immediately
     if (repos.length === 0) {
+      log.warn("classifier.classify", {
+        trace_id: traceId,
+        method: "shortcut",
+        outcome: "no_repos",
+        repo_count: 0,
+        channel_id: context?.channelId,
+      });
       return {
         repo: null,
         confidence: "low",
@@ -208,6 +215,14 @@ export class RepoClassifier {
 
     // If only one repo, skip classification
     if (repos.length === 1) {
+      log.info("classifier.classify", {
+        trace_id: traceId,
+        method: "shortcut",
+        outcome: "single_repo",
+        repo: repos[0].fullName,
+        confidence: "high",
+        channel_id: context?.channelId,
+      });
       return {
         repo: repos[0],
         confidence: "high",
@@ -220,6 +235,14 @@ export class RepoClassifier {
     if (context?.channelId) {
       const channelRepos = await getReposByChannel(this.env, context.channelId, traceId);
       if (channelRepos.length === 1) {
+        log.info("classifier.classify", {
+          trace_id: traceId,
+          method: "channel_association",
+          outcome: "success",
+          repo: channelRepos[0].fullName,
+          confidence: "high",
+          channel_id: context.channelId,
+        });
         return {
           repo: channelRepos[0],
           confidence: "high",
@@ -228,6 +251,11 @@ export class RepoClassifier {
         };
       }
     }
+
+    const classifyInput = {
+      repo_count: repos.length,
+      channel_id: context?.channelId,
+    };
 
     // Use LLM for classification
     try {
@@ -277,15 +305,29 @@ export class RepoClassifier {
         }
       }
 
+      const needsClarification =
+        !matchedRepo ||
+        llmResult.confidence === "low" ||
+        (llmResult.confidence === "medium" && alternatives.length > 0);
+
+      log.info("classifier.classify", {
+        trace_id: traceId,
+        method: "llm",
+        outcome: needsClarification ? "needs_clarification" : "success",
+        repo: matchedRepo?.fullName ?? null,
+        confidence: llmResult.confidence,
+        reasoning: llmResult.reasoning,
+        alternatives: alternatives.map((r) => r.fullName),
+        needs_clarification: needsClarification,
+        ...classifyInput,
+      });
+
       return {
         repo: matchedRepo,
         confidence: llmResult.confidence,
         reasoning: llmResult.reasoning,
         alternatives: alternatives.length > 0 ? alternatives : undefined,
-        needsClarification:
-          !matchedRepo ||
-          llmResult.confidence === "low" ||
-          (llmResult.confidence === "medium" && alternatives.length > 0),
+        needsClarification,
       };
     } catch (e) {
       log.error("classifier.classify", {
@@ -293,7 +335,7 @@ export class RepoClassifier {
         method: "llm",
         outcome: "error",
         error: e instanceof Error ? e : new Error(String(e)),
-        channel_id: context?.channelId,
+        ...classifyInput,
       });
 
       return {

@@ -36,6 +36,7 @@ import {
   resolveScmProviderFromEnv,
   type SourceControlProvider,
   type GitPushSpec,
+  type GitPushAuthContext,
 } from "../source-control";
 import {
   DEFAULT_MODEL,
@@ -171,6 +172,7 @@ export class SessionDO extends DurableObject<Env> {
       handler: (_, url) => this.handleListMessages(url),
     },
     { method: "POST", path: "/internal/create-pr", handler: (req) => this.handleCreatePR(req) },
+    { method: "POST", path: "/internal/git-push", handler: (req) => this.handleGitPush(req) },
     {
       method: "POST",
       path: "/internal/ws-token",
@@ -1580,6 +1582,7 @@ export class SessionDO extends DurableObject<Env> {
       model?: string; // LLM model to use
       reasoningEffort?: string; // Reasoning effort level
       userId: string;
+      scmUserId?: string;
       scmLogin?: string;
       scmName?: string;
       scmEmail?: string;
@@ -1658,6 +1661,7 @@ export class SessionDO extends DurableObject<Env> {
     this.repository.createParticipant({
       id: participantId,
       userId: body.userId,
+      scmUserId: body.scmUserId ?? null,
       scmLogin: body.scmLogin ?? null,
       scmName: body.scmName ?? null,
       scmEmail: body.scmEmail ?? null,
@@ -1980,6 +1984,8 @@ export class SessionDO extends DurableObject<Env> {
       ...body,
       baseBranch: body.baseBranch || session.base_branch,
       promptingUserId: promptingParticipant.user_id,
+      promptingScmLogin: promptingParticipant.scm_login,
+      promptingScmName: promptingParticipant.scm_name,
       promptingAuth: authResolution.auth,
       sessionUrl,
     });
@@ -1993,6 +1999,54 @@ export class SessionDO extends DurableObject<Env> {
       prUrl: result.prUrl,
       state: result.state,
     });
+  }
+
+  /**
+   * Push commits to the remote branch without creating a PR.
+   * Used by sandboxes to push follow-up commits after a PR already exists.
+   */
+  private async handleGitPush(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      headBranch?: string;
+    };
+
+    const session = this.getSession();
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    let pushAuth: GitPushAuthContext;
+    try {
+      pushAuth = await this.sourceControlProvider.generatePushAuth();
+    } catch (error) {
+      this.log.error("git_push.auth_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json({ error: "Failed to generate push authentication" }, { status: 500 });
+    }
+
+    const headBranch = body.headBranch || session.branch_name;
+    if (!headBranch) {
+      return Response.json({ error: "headBranch is required" }, { status: 400 });
+    }
+
+    const pushSpec = this.sourceControlProvider.buildGitPushSpec({
+      owner: session.repo_owner,
+      name: session.repo_name,
+      sourceRef: "HEAD",
+      targetBranch: headBranch,
+      auth: pushAuth,
+      force: true,
+    });
+
+    const pushResult = await this.pushBranchToRemote(headBranch, pushSpec);
+    if (!pushResult.success) {
+      this.log.warn("git_push.failed", { branch: headBranch, error: pushResult.error });
+      return Response.json({ error: pushResult.error }, { status: 500 });
+    }
+
+    this.log.info("git_push.success", { branch: headBranch });
+    return Response.json({ success: true, branch: headBranch });
   }
 
   private parseArtifactMetadata(

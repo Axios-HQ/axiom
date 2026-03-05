@@ -244,6 +244,50 @@ export async function getThreadMessages(
 }
 
 /**
+ * Get user info (including email if the `users:read.email` scope is granted).
+ */
+export async function getUserInfo(
+  token: string,
+  userId: string
+): Promise<{
+  ok: boolean;
+  user?: {
+    id: string;
+    name: string;
+    real_name?: string;
+    profile?: {
+      email?: string;
+      real_name?: string;
+      display_name?: string;
+      image_72?: string;
+    };
+  };
+  error?: string;
+}> {
+  const response = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return response.json() as Promise<{
+    ok: boolean;
+    user?: {
+      id: string;
+      name: string;
+      real_name?: string;
+      profile?: {
+        email?: string;
+        real_name?: string;
+        display_name?: string;
+        image_72?: string;
+      };
+    };
+    error?: string;
+  }>;
+}
+
+/**
  * Publish a view to a user's App Home tab.
  */
 export async function publishView(

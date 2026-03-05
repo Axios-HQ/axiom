@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       title: body.title,
       scmToken: accessToken,
       userId,
+      scmUserId: user.id,
       scmLogin: user.login,
       scmName: user.name,
       scmEmail: user.email,
