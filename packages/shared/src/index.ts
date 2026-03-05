@@ -12,3 +12,4 @@ export * from "./linear-client";
 export * from "./workspace-manager";
 export * from "./prompt-renderer";
 export * from "./orchestrator";
+export * from "./orchestrator-controller";
