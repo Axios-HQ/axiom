@@ -17,8 +17,8 @@ import {
   releaseClaim,
   terminateRunningIssue,
 } from "./orchestrator";
-import type { getEffectiveConfig } from "./workflow-loader";
 import { validateDispatchConfig } from "./workflow-loader";
+import type { EffectiveWorkflowConfig } from "./workflow-loader";
 
 /**
  * Logger interface (injectable)
@@ -84,7 +84,7 @@ export class OrchestratorController {
    */
   setWorkflow(
     workflow: WorkflowDefinition,
-    effectiveConfig: ReturnType<typeof getEffectiveConfig>
+    effectiveConfig: EffectiveWorkflowConfig
   ): { ok: true } | { ok: false; error: string } {
     // Validate configuration
     const validation = validateDispatchConfig(workflow.config);
@@ -210,10 +210,6 @@ export class OrchestratorController {
     const runnableRetries = getRunnableRetries(this.state);
 
     for (const { issueId, retry } of runnableRetries) {
-      if (!hasAvailableSlots(this.state, null, config.agent)) {
-        break;
-      }
-
       const issue = issueResolver(issueId);
       if (!issue) {
         // Issue not found, release claim
@@ -222,6 +218,10 @@ export class OrchestratorController {
           issue_id: issueId,
         });
         continue;
+      }
+
+      if (!hasAvailableSlots(this.state, issue, config.agent)) {
+        break;
       }
 
       // Check if still active
@@ -378,7 +378,7 @@ export class OrchestratorController {
     this.state.running[issueId] = updateRunningEntryFromCodexEvent(entry, event);
 
     // Track tokens
-    if (event.usage?.total_tokens) {
+    if (event.usage?.total_tokens !== undefined) {
       const delta = event.usage.total_tokens - entry.last_reported_total_tokens;
       if (delta > 0) {
         const codexTotals: CodexTotals = {
@@ -386,19 +386,19 @@ export class OrchestratorController {
           total_tokens: this.state.codex_totals.total_tokens + delta,
           input_tokens:
             this.state.codex_totals.input_tokens +
-            (event.usage.input_tokens
-              ? event.usage.input_tokens - entry.last_reported_input_tokens
-              : 0),
+            ((event.usage.input_tokens ?? entry.last_reported_input_tokens) -
+              entry.last_reported_input_tokens),
           output_tokens:
             this.state.codex_totals.output_tokens +
-            (event.usage.output_tokens
-              ? event.usage.output_tokens - entry.last_reported_output_tokens
-              : 0),
+            ((event.usage.output_tokens ?? entry.last_reported_output_tokens) -
+              entry.last_reported_output_tokens),
         };
         this.state.codex_totals = codexTotals;
         this.state.running[issueId].last_reported_total_tokens = event.usage.total_tokens;
-        this.state.running[issueId].last_reported_input_tokens = event.usage.input_tokens || 0;
-        this.state.running[issueId].last_reported_output_tokens = event.usage.output_tokens || 0;
+        this.state.running[issueId].last_reported_input_tokens =
+          event.usage.input_tokens ?? entry.last_reported_input_tokens;
+        this.state.running[issueId].last_reported_output_tokens =
+          event.usage.output_tokens ?? entry.last_reported_output_tokens;
       }
     }
   }

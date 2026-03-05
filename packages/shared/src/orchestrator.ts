@@ -176,7 +176,9 @@ export function calculateRetryDelay(
   }
 
   // Formula: min(10000 * 2^(attempt - 1), maxRetryBackoffMs)
-  const baseDelay = INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF_MULTIPLIER, attempt - 1);
+  const normalizedAttempt = Math.max(1, attempt);
+  const baseDelay =
+    INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF_MULTIPLIER, normalizedAttempt - 1);
   return Math.min(baseDelay, maxRetryBackoffMs);
 }
 
@@ -378,6 +380,10 @@ export function releaseClaim(state: OrchestratorState, issueId: string): Orchest
   claimed.delete(issueId);
   newState.claimed = claimed;
 
+  const retryAttempts = { ...newState.retry_attempts };
+  delete retryAttempts[issueId];
+  newState.retry_attempts = retryAttempts;
+
   return newState;
 }
 
@@ -408,6 +414,14 @@ export function terminateRunningIssue(
     };
     newState.codex_totals = codexTotals;
   }
+
+  const claimed = new Set(newState.claimed);
+  claimed.delete(issueId);
+  newState.claimed = claimed;
+
+  const retryAttempts = { ...newState.retry_attempts };
+  delete retryAttempts[issueId];
+  newState.retry_attempts = retryAttempts;
 
   // Note: cleanupWorkspace parameter indicates to caller that workspace should be deleted
   // The actual cleanup is handled by the workspace manager in the reconciliation caller

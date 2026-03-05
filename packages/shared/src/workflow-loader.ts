@@ -255,9 +255,13 @@ export function validateDispatchConfig(config: WorkflowConfig):
     };
   }
 
-  // codex.command must be present and non-empty
-  const codexCommand = config.codex?.command || "codex app-server";
-  if (!codexCommand || typeof codexCommand !== "string") {
+  // codex.command defaults to "codex app-server" when omitted,
+  // but an explicitly provided empty value is invalid.
+  const codexCommand = config.codex?.command;
+  if (
+    codexCommand !== undefined &&
+    (typeof codexCommand !== "string" || codexCommand.trim() === "")
+  ) {
     return {
       ok: false,
       error: "codex.command must be a non-empty string",
@@ -477,6 +481,8 @@ export function getEffectiveConfig(workflowConfig: WorkflowConfig): {
     },
   };
 }
+
+export type EffectiveWorkflowConfig = ReturnType<typeof getEffectiveConfig>;
 
 /**
  * Parse integer config value with default

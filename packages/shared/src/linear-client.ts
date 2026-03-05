@@ -291,7 +291,7 @@ function normalizeLinearIssue(node: unknown): Issue {
     ((nodeData.labels as Record<string, unknown>)?.nodes as Array<{ name: string }>) || []
   ).map((label) => label.name.toLowerCase());
 
-  // Extract blockers from relations (inverse of "blocks" relation type)
+  // Extract blockers from inverse block relations.
   const blockedBy: IssueBlocker[] = [];
   const relations =
     ((nodeData.relations as Record<string, unknown>)?.nodes as Array<{
@@ -300,7 +300,10 @@ function normalizeLinearIssue(node: unknown): Issue {
     }>) || [];
 
   for (const relation of relations) {
-    if (relation.type === "blocks" && relation.relatedIssue) {
+    if (
+      (relation.type === "blocked_by" || relation.type === "blockedBy") &&
+      relation.relatedIssue
+    ) {
       blockedBy.push({
         id: relation.relatedIssue.id || null,
         identifier: relation.relatedIssue.identifier || null,

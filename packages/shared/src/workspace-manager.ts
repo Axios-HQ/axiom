@@ -68,7 +68,7 @@ export class WorkspaceManager {
       const resolvedPath = path.resolve(workspacePath);
       const resolvedRoot = path.resolve(this.rootPath);
 
-      if (!resolvedPath.startsWith(resolvedRoot)) {
+      if (!this.isPathWithinRoot(resolvedPath, resolvedRoot)) {
         return {
           error: "Workspace path would escape root directory",
         };
@@ -161,7 +161,7 @@ export class WorkspaceManager {
       const resolvedPath = path.resolve(workspacePath);
       const resolvedRoot = path.resolve(this.rootPath);
 
-      if (!resolvedPath.startsWith(resolvedRoot)) {
+      if (!this.isPathWithinRoot(resolvedPath, resolvedRoot)) {
         return {
           ok: false,
           error: "Workspace path would escape root directory",
@@ -268,6 +268,11 @@ export class WorkspaceManager {
   validateWorkspacePathSafety(workspacePath: string): boolean {
     const resolvedPath = path.resolve(workspacePath);
     const resolvedRoot = path.resolve(this.rootPath);
-    return resolvedPath.startsWith(resolvedRoot + path.sep) || resolvedPath === resolvedRoot;
+    return this.isPathWithinRoot(resolvedPath, resolvedRoot);
+  }
+
+  private isPathWithinRoot(candidatePath: string, rootPath: string): boolean {
+    const relative = path.relative(rootPath, candidatePath);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
   }
 }
