@@ -137,6 +137,22 @@ function toUiArtifact(artifact: {
   };
 }
 
+function mergeArtifactsById(existing: Artifact[], incoming: Artifact[]): Artifact[] {
+  const byId = new Map(existing.map((artifact) => [artifact.id, artifact]));
+
+  for (const artifact of incoming) {
+    const current = byId.get(artifact.id);
+    byId.set(artifact.id, {
+      ...current,
+      ...artifact,
+      metadata: artifact.metadata ?? current?.metadata,
+      createdAt: artifact.createdAt ?? current?.createdAt,
+    });
+  }
+
+  return Array.from(byId.values());
+}
+
 export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const connectingRef = useRef(false);
@@ -212,6 +228,35 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
     }
   }, []);
 
+  const hydrateArtifacts = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/artifacts`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        artifacts?: Array<{
+          id: string;
+          type: string;
+          url: string;
+          prNumber?: number;
+          metadata?: Record<string, unknown>;
+          createdAt?: number;
+        }>;
+      };
+
+      const incoming = (payload.artifacts ?? []).map(toUiArtifact);
+      setArtifacts((prev) => mergeArtifactsById(prev, incoming));
+    } catch (error) {
+      console.error("Failed to hydrate artifacts:", error);
+    }
+  }, [sessionId]);
+
   const handleMessage = useCallback(
     (data: WsMessage) => {
       switch (data.type) {
@@ -220,6 +265,7 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
           subscribedRef.current = true;
           // Clear existing state since we're about to receive fresh history
           setArtifacts([]);
+          hydrateArtifacts();
           pendingTextRef.current = null;
           if (data.state) {
             setSessionState({
@@ -370,7 +416,7 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
           break;
       }
     },
-    [processSandboxEvent, sessionId]
+    [processSandboxEvent, sessionId, hydrateArtifacts]
   );
 
   const fetchWsToken = useCallback(async (): Promise<string | null> => {
