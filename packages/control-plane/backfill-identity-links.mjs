@@ -22,7 +22,11 @@ function parseArgs(argv) {
     }
     if (arg === "--override-manual") args.overrideManual = true;
     if (arg === "--domain") {
-      args.domain = argv[i + 1] || args.domain;
+      const domainValue = argv[i + 1];
+      if (!domainValue || domainValue.startsWith("--")) {
+        throw new Error("--domain requires a value");
+      }
+      args.domain = domainValue.trim();
       i += 1;
     }
   }

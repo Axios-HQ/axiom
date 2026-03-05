@@ -9,6 +9,7 @@ import { fetchWithTimeout } from "../auth/github-app";
 const logger = createLogger("identity-sync");
 
 const SLACK_USERS_PAGE_SIZE = 200;
+const IDENTITY_SYNC_HTTP_TIMEOUT_MS = 15_000;
 
 interface SlackUser {
   id: string;
@@ -60,9 +61,11 @@ async function fetchSlackUsers(slackBotToken: string): Promise<SlackUser[]> {
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetchWithTimeout(url.toString(), {
-      headers: { Authorization: `Bearer ${slackBotToken}` },
-    });
+    const response = await fetchWithTimeout(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${slackBotToken}` } },
+      IDENTITY_SYNC_HTTP_TIMEOUT_MS
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to fetch Slack users: ${response.status}`);
@@ -93,31 +96,35 @@ async function fetchLinearUsers(linearApiKey: string): Promise<LinearUser[]> {
   let cursor: string | null = null;
 
   while (hasMore) {
-    const response = await fetchWithTimeout("https://api.linear.app/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: linearApiKey,
-      },
-      body: JSON.stringify({
-        query: `
-          query IdentitySyncUsers($after: String) {
-            users(first: 100, after: $after) {
-              nodes {
-                id
-                email
-                gitHubUserId
-              }
-              pageInfo {
-                hasNextPage
-                endCursor
+    const response = await fetchWithTimeout(
+      "https://api.linear.app/graphql",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: linearApiKey,
+        },
+        body: JSON.stringify({
+          query: `
+            query IdentitySyncUsers($after: String) {
+              users(first: 100, after: $after) {
+                nodes {
+                  id
+                  email
+                  gitHubUserId
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
               }
             }
-          }
-        `,
-        variables: { after: cursor },
-      }),
-    });
+          `,
+          variables: { after: cursor },
+        }),
+      },
+      IDENTITY_SYNC_HTTP_TIMEOUT_MS
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to fetch Linear users: ${response.status}`);
@@ -161,7 +168,7 @@ async function fetchLinearUsers(linearApiKey: string): Promise<LinearUser[]> {
 export async function runIdentityLinkSync(input: IdentitySyncInput): Promise<IdentitySyncResult> {
   const log = input.log ?? logger;
   const store = new IdentityLinksStore(input.db);
-  const domain = input.domain.toLowerCase();
+  const domain = input.domain.trim().toLowerCase();
   const preserveManual = !input.overrideManual;
 
   const [slackUsers, linearUsers] = await Promise.all([

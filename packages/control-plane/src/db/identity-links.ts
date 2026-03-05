@@ -85,20 +85,35 @@ export class IdentityLinksStore {
     isManual?: boolean;
     preserveManual?: boolean;
   }): Promise<IdentityLinkUpsertOutcome> {
+    const githubName = input.githubName ?? null;
+    const preserveManual = Boolean(input.preserveManual);
+
+    // Check for a true no-op before writing (identical values on non-manual row, or
+    // a manual row that exactly matches when preserveManual is off).
     const existing = await this.getByProviderExternal(input.provider, input.externalUserId);
-    if (existing?.isManual && input.preserveManual) {
-      if (
-        existing.githubUserId !== input.githubUserId ||
-        existing.githubLogin !== input.githubLogin ||
-        (existing.githubName ?? null) !== (input.githubName ?? null)
-      ) {
-        return "conflicted";
+    if (existing) {
+      const valuesMatch =
+        existing.githubUserId === input.githubUserId &&
+        existing.githubLogin === input.githubLogin &&
+        (existing.githubName ?? null) === githubName;
+
+      if (existing.isManual && preserveManual) {
+        // Atomic guard: never overwrite a manual row when preserveManual is set.
+        // Classify the intent before hitting the DB.
+        return valuesMatch ? "skipped" : "conflicted";
       }
-      return "skipped";
+
+      if (valuesMatch) {
+        // No-op update for non-manual rows — avoid an unnecessary write.
+        return "skipped";
+      }
     }
 
     const now = Date.now();
-    await this.db
+    // Atomic guard in SQL: skip the update if the stored row is manual and we want
+    // to preserve manual links. This closes the TOCTOU window between the read
+    // above and the write below (e.g. a concurrent manual-link creation).
+    const result = await this.db
       .prepare(
         `INSERT INTO identity_links
          (provider, external_user_id, github_user_id, github_login, github_name, source, source_metadata, is_manual, created_by, created_at, updated_at)
@@ -110,22 +125,37 @@ export class IdentityLinksStore {
             source = excluded.source,
             source_metadata = excluded.source_metadata,
             is_manual = excluded.is_manual,
-            updated_at = excluded.updated_at`
+            updated_at = excluded.updated_at
+         WHERE NOT (identity_links.is_manual = 1 AND ? = 1)`
       )
       .bind(
         input.provider,
         input.externalUserId,
         input.githubUserId,
         input.githubLogin,
-        input.githubName ?? null,
+        githubName,
         input.source ?? "manual",
         input.sourceMetadata ? JSON.stringify(input.sourceMetadata) : null,
         input.isManual ? 1 : 0,
         input.createdBy,
         now,
-        now
+        now,
+        preserveManual ? 1 : 0
       )
       .run();
+
+    // If the WHERE guard blocked the update, the row was a manual link that we
+    // must not overwrite. Re-read to distinguish skipped vs conflicted.
+    if ((result.meta?.changes ?? 0) === 0 && preserveManual) {
+      const current = await this.getByProviderExternal(input.provider, input.externalUserId);
+      if (current?.isManual) {
+        const valuesMatch =
+          current.githubUserId === input.githubUserId &&
+          current.githubLogin === input.githubLogin &&
+          (current.githubName ?? null) === githubName;
+        return valuesMatch ? "skipped" : "conflicted";
+      }
+    }
 
     return "linked";
   }

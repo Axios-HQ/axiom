@@ -60,6 +60,9 @@ class FakeD1Database {
   run(query: string, args: unknown[]) {
     const normalized = normalizeQuery(query);
     if (QUERY_PATTERNS.UPSERT.test(normalized)) {
+      // Args: provider, externalUserId, githubUserId, githubLogin, githubName,
+      //       source, sourceMetadata, isManual, createdBy, createdAt, updatedAt,
+      //       preserveManualFlag (extra param for WHERE NOT guard)
       const [
         provider,
         externalUserId,
@@ -72,6 +75,7 @@ class FakeD1Database {
         createdBy,
         createdAt,
         updatedAt,
+        preserveManualFlag,
       ] = args as [
         IdentityProvider,
         string,
@@ -84,10 +88,16 @@ class FakeD1Database {
         string,
         number,
         number,
+        number,
       ];
 
       const key = `${provider}:${externalUserId}`;
       const existing = this.rows.get(key);
+
+      // Simulate the WHERE NOT (is_manual = 1 AND preserveManualFlag = 1) guard.
+      if (existing && existing.is_manual === 1 && preserveManualFlag === 1) {
+        return { meta: { changes: 0 } };
+      }
 
       this.rows.set(key, {
         provider,
@@ -219,6 +229,32 @@ describe("IdentityLinksStore", () => {
     const link = await store.getByProviderExternal("slack", "U123");
     expect(link?.githubUserId).toBe("gh_1");
     expect(link?.isManual).toBe(true);
+  });
+
+  it("returns skipped for identical non-manual re-upsert", async () => {
+    await store.upsert({
+      provider: "slack",
+      externalUserId: "U456",
+      githubUserId: "gh_1",
+      githubLogin: "josh",
+      githubName: "Josh",
+      createdBy: "sync:identity_links",
+      source: "identity_sync",
+      isManual: false,
+    });
+
+    const outcome = await store.upsertWithOutcome({
+      provider: "slack",
+      externalUserId: "U456",
+      githubUserId: "gh_1",
+      githubLogin: "josh",
+      githubName: "Josh",
+      createdBy: "sync:identity_links",
+      source: "identity_sync",
+      isManual: false,
+    });
+
+    expect(outcome).toBe("skipped");
   });
 
   it("lists links by github user", async () => {

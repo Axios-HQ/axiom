@@ -74,6 +74,7 @@ async function handleSyncIdentityLinks(
     SLACK_BOT_TOKEN?: string;
     LINEAR_API_KEY?: string;
     INTERNAL_CALLBACK_SECRET?: string;
+    IDENTITY_LINK_SYNC_DOMAIN?: string;
   },
   _match: RegExpMatchArray,
   _ctx: RequestContext
@@ -90,14 +91,22 @@ async function handleSyncIdentityLinks(
     return error("Unauthorized", 401);
   }
 
-  const body = (await request.json().catch(() => ({}))) as {
-    mode?: "dry-run" | "apply";
-    domain?: string;
-    overrideManual?: boolean;
-  };
+  let body: { mode?: string; domain?: string; overrideManual?: boolean };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return error("Invalid JSON body", 400);
+  }
 
-  const mode = body.mode === "dry-run" ? "dry-run" : "apply";
-  const domain = body.domain?.trim() || "axioshq.com";
+  if (body.mode !== "dry-run" && body.mode !== "apply") {
+    return error("mode must be one of: dry-run, apply", 400);
+  }
+  const mode: "dry-run" | "apply" = body.mode;
+
+  const domain = body.domain?.trim() || env.IDENTITY_LINK_SYNC_DOMAIN?.trim();
+  if (!domain) {
+    return error("domain is required (body.domain or IDENTITY_LINK_SYNC_DOMAIN env var)", 400);
+  }
 
   if (!env.SLACK_BOT_TOKEN) {
     return error("SLACK_BOT_TOKEN is required for identity sync", 500);
