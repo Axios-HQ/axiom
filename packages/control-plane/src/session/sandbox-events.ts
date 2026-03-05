@@ -2,6 +2,7 @@ import { generateId } from "../auth/crypto";
 import type { Logger } from "../logger";
 import type { GitPushSpec } from "../source-control";
 import type { SandboxEvent, ServerMessage } from "../types";
+import type { PreviewArtifactMetadata } from "@open-inspect/shared";
 import { shouldPersistToolCallEvent } from "./event-persistence";
 import type { SessionRepository } from "./repository";
 import type { CallbackNotificationService } from "./callback-notification-service";
@@ -168,6 +169,22 @@ export class SessionSandboxEventProcessor {
       return;
     }
 
+    // Handle code-server ready: create a "preview" artifact for the IDE URL,
+    // broadcast the credentials only over the authenticated WS channel (not
+    // persisted), and do NOT store the password in the event log.
+    if (event.type === "code_server_ready") {
+      this.handleCodeServerReady(event, now);
+      this.sendAck(ackId);
+      return;
+    }
+
+    // Handle preview URL publishing: upsert a preview artifact keyed on label.
+    if (event.type === "preview_url") {
+      this.handlePreviewUrl(event, now);
+      this.sendAck(ackId);
+      return;
+    }
+
     this.deps.repository.createEvent({
       id: generateId(),
       type: event.type,
@@ -193,6 +210,117 @@ export class SessionSandboxEventProcessor {
     if (CRITICAL_EVENT_TYPES.has(event.type)) {
       this.sendAck(ackId);
     }
+  }
+
+  /**
+   * Handle a code_server_ready event.
+   *
+   * - Creates a "preview" artifact for the IDE URL (url only, no password).
+   * - Broadcasts the password only over the authenticated WS channel so it
+   *   reaches connected clients without being persisted to the event log.
+   * - Does NOT store the event itself to avoid leaking credentials.
+   */
+  private handleCodeServerReady(
+    event: Extract<SandboxEvent, { type: "code_server_ready" }>,
+    now: number
+  ): void {
+    const metadata: PreviewArtifactMetadata & { kind: "code_server" } = {
+      kind: "code_server",
+      label: "code-server",
+      previewStatus: "active",
+      updatedAt: now,
+    };
+
+    // Upsert the artifact (keyed on label "code-server", one per session).
+    const artifact = this.deps.repository.upsertPreviewArtifact({
+      id: `preview:code-server`,
+      type: "preview",
+      url: event.url,
+      label: "code-server",
+      repo: undefined,
+      metadata: JSON.stringify(metadata),
+      createdAt: now,
+    });
+
+    // Broadcast artifact_created to all WS clients.
+    this.deps.broadcast({
+      type: "artifact_created",
+      artifact: {
+        id: artifact.id,
+        type: "preview",
+        url: artifact.url ?? event.url,
+        metadata: metadata as unknown as Record<string, unknown>,
+        createdAt: artifact.created_at,
+      },
+    });
+
+    // Broadcast code_server_ready with the password over the authenticated WS channel.
+    // This uses the same `broadcast` helper so only currently connected authenticated
+    // clients receive it (it is not persisted).
+    this.deps.broadcast({
+      type: "code_server_ready",
+      url: event.url,
+      password: event.password,
+    });
+
+    this.deps.log.info("code_server.ready", { url: event.url });
+  }
+
+  /**
+   * Handle a preview_url event.
+   *
+   * - Upserts a "preview" artifact keyed on its label.
+   * - Broadcasts artifact_created to connected clients.
+   * - Also stores the event in the event log (no credentials).
+   */
+  private handlePreviewUrl(
+    event: Extract<SandboxEvent, { type: "preview_url" }>,
+    now: number
+  ): void {
+    const metadata: PreviewArtifactMetadata = {
+      label: event.label,
+      repo: event.repo,
+      previewStatus: event.status,
+      updatedAt: now,
+    };
+
+    const previewId = event.repo
+      ? `preview:${event.repo}:${event.label}`
+      : `preview:${event.label}`;
+
+    const artifact = this.deps.repository.upsertPreviewArtifact({
+      id: previewId,
+      type: "preview",
+      url: event.url,
+      label: event.label,
+      repo: event.repo,
+      metadata: JSON.stringify(metadata),
+      createdAt: now,
+    });
+
+    this.deps.broadcast({
+      type: "artifact_created",
+      artifact: {
+        id: artifact.id,
+        type: "preview",
+        url: artifact.url ?? event.url,
+        metadata: metadata as unknown as Record<string, unknown>,
+        createdAt: artifact.created_at,
+      },
+    });
+
+    // Store the event in the log (safe — no credentials).
+    const messageId =
+      "messageId" in event ? ((event as { messageId?: string }).messageId ?? null) : null;
+    this.deps.repository.createEvent({
+      id: generateId(),
+      type: event.type,
+      data: JSON.stringify(event),
+      messageId,
+      createdAt: now,
+    });
+
+    this.deps.log.info("preview_url.published", { url: event.url, label: event.label });
   }
 
   async pushBranchToRemote(

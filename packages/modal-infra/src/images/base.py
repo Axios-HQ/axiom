@@ -23,8 +23,8 @@ SANDBOX_DIR = Path(__file__).parent.parent / "sandbox"
 OPENCODE_VERSION = "latest"
 
 # Cache buster - change this to force Modal image rebuild
-# v40: Install agent-browser for AI-driven browser verification
-CACHE_BUSTER = "v40-agent-browser"
+# v41: Install code-server for in-session browser IDE
+CACHE_BUSTER = "v41-code-server"
 
 # Base image with all development tools
 base_image = (
@@ -112,6 +112,13 @@ base_image = (
     # Install agent-browser CLI for AI-driven browser verification
     .run_commands(
         "npm install -g agent-browser",
+    )
+    # Install code-server (browser-based VS Code IDE)
+    # Uses the official install script which detects the platform and installs
+    # the latest stable release to /usr/lib/code-server.
+    .run_commands(
+        "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local",
+        "code-server --version || echo 'code-server installed'",
     )
     # Create working directories
     .run_commands(

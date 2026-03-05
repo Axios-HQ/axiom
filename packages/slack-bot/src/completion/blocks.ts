@@ -100,6 +100,36 @@ export function buildCompletionBlocks(
   const hasPrArtifact = response.artifacts.some((artifact) => artifact.type === "pr");
   const requiresSignIn = hasPrArtifactWithoutOAuth(response.artifacts);
   const manualCreatePrUrl = getManualCreatePrUrl(response.artifacts);
+
+  // Collect active preview URLs (skip code-server and stopped ones — credentials
+  // are session-scoped and must not be embedded in potentially public Slack messages).
+  const previewLinks = response.artifacts.filter(
+    (a) =>
+      a.type === "preview" &&
+      a.url &&
+      (a.metadata as Record<string, unknown> | null | undefined)?.kind !== "code_server" &&
+      (a.metadata as Record<string, unknown> | null | undefined)?.previewStatus !== "stopped"
+  );
+
+  if (previewLinks.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Live Previews:*\n" +
+          previewLinks
+            .map((a) => {
+              const meta = a.metadata as Record<string, unknown> | null | undefined;
+              const label = meta?.label ? String(meta.label) : "preview";
+              const repo = meta?.repo ? ` _(${String(meta.repo)})_` : "";
+              return `- <${a.url}|${label}>${repo}`;
+            })
+            .join("\n"),
+      },
+    });
+  }
+
   const actionElements: Array<{
     type: string;
     text: { type: string; text: string };

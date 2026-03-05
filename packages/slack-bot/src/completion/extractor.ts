@@ -234,6 +234,12 @@ function getArtifactLabelFromArtifact(
     const branchName = metadata?.head;
     return `Branch: ${branchName ?? "branch"}`;
   }
+  if (type === "preview") {
+    const label = metadata?.label;
+    const repo = metadata?.repo;
+    const base = label ? String(label) : "Preview";
+    return repo ? `${base} (${String(repo)})` : base;
+  }
   return type;
 }
 

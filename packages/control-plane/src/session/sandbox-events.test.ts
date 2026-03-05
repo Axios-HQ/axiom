@@ -15,6 +15,22 @@ function createProcessor() {
     ),
     updateSandboxGitSyncStatus: vi.fn(),
     updateSessionCurrentSha: vi.fn(),
+    upsertPreviewArtifact: vi.fn(
+      (data: {
+        id: string;
+        type: string;
+        url: string;
+        label: string;
+        metadata: string;
+        createdAt: number;
+      }) => ({
+        id: data.id,
+        type: data.type,
+        url: data.url,
+        metadata: data.metadata,
+        created_at: data.createdAt,
+      })
+    ),
   };
 
   const callbackService = {
@@ -360,6 +376,221 @@ describe("SessionSandboxEventProcessor", () => {
 
       // Token events return early before ACK logic
       expect(h.wsManager.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("code_server_ready event", () => {
+    it("upserts preview artifact with deterministic id 'preview:code-server'", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "code_server_ready",
+        url: "https://code.example.com",
+        password: "s3cr3t",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      expect(h.repository.upsertPreviewArtifact).toHaveBeenCalledOnce();
+      const call = h.repository.upsertPreviewArtifact.mock.calls[0][0];
+      expect(call.id).toBe("preview:code-server");
+      expect(call.type).toBe("preview");
+      expect(call.url).toBe("https://code.example.com");
+      expect(call.label).toBe("code-server");
+      const metadata = JSON.parse(call.metadata);
+      expect(metadata.kind).toBe("code_server");
+      expect(metadata.previewStatus).toBe("active");
+    });
+
+    it("broadcasts artifact_created without the password", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "code_server_ready",
+        url: "https://code.example.com",
+        password: "s3cr3t",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      const artifactCreatedCall = h.broadcast.mock.calls.find(
+        ([msg]) => msg.type === "artifact_created"
+      );
+      expect(artifactCreatedCall).toBeDefined();
+      const msg = artifactCreatedCall![0] as {
+        type: string;
+        artifact: { id: string; url?: string };
+      };
+      expect(msg.artifact.id).toBe("preview:code-server");
+      // Password must NOT appear in the artifact_created broadcast
+      expect(JSON.stringify(artifactCreatedCall![0])).not.toContain("s3cr3t");
+    });
+
+    it("broadcasts code_server_ready with url and password over WS", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "code_server_ready",
+        url: "https://code.example.com",
+        password: "s3cr3t",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      const codeServerReadyCall = h.broadcast.mock.calls.find(
+        ([msg]) => msg.type === "code_server_ready"
+      );
+      expect(codeServerReadyCall).toBeDefined();
+      const msg = codeServerReadyCall![0] as { type: string; url: string; password: string };
+      expect(msg.url).toBe("https://code.example.com");
+      expect(msg.password).toBe("s3cr3t");
+    });
+
+    it("does NOT store the event in the event log (password protection)", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "code_server_ready",
+        url: "https://code.example.com",
+        password: "s3cr3t",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      expect(h.repository.createEvent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("preview_url event", () => {
+    it("upserts preview artifact keyed on label", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "preview_url",
+        url: "https://app.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      expect(h.repository.upsertPreviewArtifact).toHaveBeenCalledOnce();
+      const call = h.repository.upsertPreviewArtifact.mock.calls[0][0];
+      expect(call.id).toBe("preview:acme/web:frontend");
+      expect(call.type).toBe("preview");
+      expect(call.url).toBe("https://app.example.com");
+      expect(call.label).toBe("frontend");
+      const metadata = JSON.parse(call.metadata);
+      expect(metadata.label).toBe("frontend");
+      expect(metadata.repo).toBe("acme/web");
+      expect(metadata.previewStatus).toBe("active");
+    });
+
+    it("broadcasts artifact_created with correct artifact id", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "preview_url",
+        url: "https://app.example.com",
+        label: "backend",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      const call = h.broadcast.mock.calls.find(([msg]) => msg.type === "artifact_created");
+      expect(call).toBeDefined();
+      const msg = call![0] as { type: string; artifact: { id: string } };
+      expect(msg.artifact.id).toBe("preview:backend");
+    });
+
+    it("stores the event in the event log", async () => {
+      const h = createProcessor();
+      const event: SandboxEvent = {
+        type: "preview_url",
+        url: "https://app.example.com",
+        label: "frontend",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+
+      await h.processor.processSandboxEvent(event);
+
+      expect(h.repository.createEvent).toHaveBeenCalledOnce();
+      const eventArg = h.repository.createEvent.mock.calls[0][0];
+      expect(eventArg.type).toBe("preview_url");
+    });
+
+    it("uses separate deterministic ids for different labels (multi-repo safety)", async () => {
+      const h = createProcessor();
+
+      const frontendEvent: SandboxEvent = {
+        type: "preview_url",
+        url: "https://frontend.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+      const backendEvent: SandboxEvent = {
+        type: "preview_url",
+        url: "https://backend.example.com",
+        label: "frontend",
+        repo: "acme/api",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1001,
+      };
+
+      await h.processor.processSandboxEvent(frontendEvent);
+      await h.processor.processSandboxEvent(backendEvent);
+
+      expect(h.repository.upsertPreviewArtifact).toHaveBeenCalledTimes(2);
+      const ids = h.repository.upsertPreviewArtifact.mock.calls.map(([d]) => d.id);
+      expect(ids).toContain("preview:acme/web:frontend");
+      expect(ids).toContain("preview:acme/api:frontend");
+    });
+
+    it("a second publish for the same label upserts (does not duplicate)", async () => {
+      const h = createProcessor();
+
+      const first: SandboxEvent = {
+        type: "preview_url",
+        url: "https://v1.example.com",
+        label: "app",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 1000,
+      };
+      const second: SandboxEvent = {
+        type: "preview_url",
+        url: "https://v2.example.com",
+        label: "app",
+        status: "active",
+        sandboxId: "sb-1",
+        timestamp: 2000,
+      };
+
+      await h.processor.processSandboxEvent(first);
+      await h.processor.processSandboxEvent(second);
+
+      // Both calls use the same deterministic id
+      const ids = h.repository.upsertPreviewArtifact.mock.calls.map(([d]) => d.id);
+      expect(ids[0]).toBe("preview:app");
+      expect(ids[1]).toBe("preview:app");
+      // The second call carries the updated URL
+      expect(h.repository.upsertPreviewArtifact.mock.calls[1][0].url).toBe(
+        "https://v2.example.com"
+      );
     });
   });
 });

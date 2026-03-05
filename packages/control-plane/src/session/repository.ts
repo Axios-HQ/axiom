@@ -763,6 +763,32 @@ export class SessionRepository {
     return this.rows<ArtifactRow>(result);
   }
 
+  /**
+   * Upsert a preview artifact keyed on its label so that re-publishing the
+   * same service (same label) updates the existing artifact rather than
+   * creating a new one.  This keeps the artifact list clean in long-running
+   * multi-service sessions.
+   */
+  upsertPreviewArtifact(data: CreateArtifactData & { label: string; repo?: string }): ArtifactRow {
+    const repoPrefix = data.repo ? `${data.repo}:` : "";
+    const deterministicId = `preview:${repoPrefix}${data.label}`;
+    this.sql.exec(
+      `INSERT INTO artifacts (id, type, url, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         url      = excluded.url,
+         metadata = excluded.metadata,
+         created_at = excluded.created_at`,
+      deterministicId,
+      data.type,
+      data.url,
+      data.metadata,
+      data.createdAt
+    );
+    const result = this.sql.exec(`SELECT * FROM artifacts WHERE id = ?`, deterministicId);
+    return this.rows<ArtifactRow>(result)[0]!;
+  }
+
   // === WS CLIENT MAPPING ===
 
   upsertWsClientMapping(data: WsClientMappingData): void {

@@ -91,6 +91,8 @@ const VALID_EVENT_TYPES = [
   "push_error",
   "user_message",
   "agent_update",
+  "code_server_ready",
+  "preview_url",
 ] as const;
 
 /**
@@ -202,6 +204,16 @@ export class SessionDO extends DurableObject<Env> {
       method: "POST",
       path: "/internal/agent-update",
       handler: (req) => this.handleAgentUpdate(req),
+    },
+    {
+      method: "POST",
+      path: "/internal/preview-url",
+      handler: (req) => this.handlePreviewUrl(req),
+    },
+    {
+      method: "POST",
+      path: "/internal/code-server-ready",
+      handler: (req) => this.handleCodeServerReady(req),
     },
   ];
 
@@ -1858,6 +1870,92 @@ export class SessionDO extends DurableObject<Env> {
       );
     }
 
+    return Response.json({ status: "ok" });
+  }
+
+  /**
+   * Handle a preview URL published by an agent (via the publish-preview tool).
+   *
+   * Validates the incoming payload and synthesises a `preview_url` sandbox
+   * event, which is processed by `SessionSandboxEventProcessor` to upsert the
+   * artifact and broadcast `artifact_created` to connected clients.
+   */
+  private async handlePreviewUrl(request: Request): Promise<Response> {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    if (typeof body.url !== "string" || !body.url) {
+      return Response.json({ error: "url is required" }, { status: 400 });
+    }
+    if (typeof body.label !== "string" || !body.label || body.label.length > 64) {
+      return Response.json(
+        { error: "label is required and must be <= 64 characters" },
+        { status: 400 }
+      );
+    }
+    const validStatuses = ["active", "outdated", "stopped"];
+    const status = typeof body.status === "string" ? body.status : "active";
+    if (!validStatuses.includes(status)) {
+      return Response.json(
+        { error: "status must be active, outdated, or stopped" },
+        { status: 400 }
+      );
+    }
+
+    try {
+      new URL(body.url as string);
+    } catch {
+      return Response.json({ error: "url must be a valid URL" }, { status: 400 });
+    }
+
+    const sandbox = this.repository.getSandbox();
+    const sandboxId = sandbox?.modal_sandbox_id ?? "unknown";
+    const now = Date.now();
+
+    const event: SandboxEvent = {
+      type: "preview_url",
+      url: body.url as string,
+      label: body.label as string,
+      repo: typeof body.repo === "string" ? body.repo : undefined,
+      status: status as "active" | "outdated" | "stopped",
+      sandboxId,
+      timestamp: now,
+    };
+
+    await this.processSandboxEvent(event);
+    return Response.json({ status: "ok" });
+  }
+
+  /**
+   * Handle code-server started notification from the sandbox.
+   *
+   * This endpoint is called by the sandbox supervisor (not an agent tool) over
+   * an authenticated server-to-server channel.  The session-scoped password is
+   * delivered to connected WebSocket clients but is NOT persisted.
+   */
+  private async handleCodeServerReady(request: Request): Promise<Response> {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    if (typeof body.url !== "string" || !body.url) {
+      return Response.json({ error: "url is required" }, { status: 400 });
+    }
+    if (typeof body.password !== "string" || !body.password) {
+      return Response.json({ error: "password is required" }, { status: 400 });
+    }
+
+    const sandbox = this.repository.getSandbox();
+    const sandboxId =
+      (body.sandboxId as string | undefined) ?? sandbox?.modal_sandbox_id ?? "unknown";
+    const now = Date.now();
+
+    const event: SandboxEvent = {
+      type: "code_server_ready",
+      url: body.url as string,
+      password: body.password as string,
+      sandboxId,
+      timestamp: now,
+    };
+
+    await this.processSandboxEvent(event);
     return Response.json({ status: "ok" });
   }
 

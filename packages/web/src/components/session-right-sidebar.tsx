@@ -7,6 +7,7 @@ import {
   MetadataSection,
   TasksSection,
   FilesChangedSection,
+  PreviewsSection,
 } from "./sidebar";
 import { ChildSessionsSection } from "./sidebar/child-sessions-section";
 import { extractLatestTasks } from "@/lib/tasks";
@@ -19,6 +20,8 @@ interface SessionRightSidebarProps {
   participants: ParticipantPresence[];
   events: SandboxEvent[];
   artifacts: Artifact[];
+  /** code-server credentials from in-memory WS state (never persisted). */
+  codeServer?: { url: string; password: string } | null;
 }
 
 export type SessionRightSidebarContentProps = SessionRightSidebarProps;
@@ -28,9 +31,18 @@ export function SessionRightSidebarContent({
   participants,
   events,
   artifacts,
+  codeServer,
 }: SessionRightSidebarContentProps) {
   const tasks = useMemo(() => extractLatestTasks(events), [events]);
   const filesChanged = useMemo(() => extractChangedFiles(events), [events]);
+
+  const previewArtifacts = useMemo(
+    () => artifacts.filter((a) => a.type === "preview"),
+    [artifacts]
+  );
+  const hasCodeServer =
+    previewArtifacts.some((a) => a.metadata?.kind === "code_server") || !!codeServer;
+  const hasPreviews = previewArtifacts.length > 0 || hasCodeServer;
 
   if (!sessionState) {
     return (
@@ -67,6 +79,13 @@ export function SessionRightSidebarContent({
         />
       </div>
 
+      {/* Previews & code-server */}
+      {hasPreviews && (
+        <CollapsibleSection title="Previews" defaultOpen={true}>
+          <PreviewsSection artifacts={previewArtifacts} codeServer={codeServer} />
+        </CollapsibleSection>
+      )}
+
       {/* Tasks */}
       {tasks.length > 0 && (
         <CollapsibleSection title="Tasks" defaultOpen={true}>
@@ -85,13 +104,16 @@ export function SessionRightSidebarContent({
       )}
 
       {/* Artifacts info when no specific sections are populated */}
-      {tasks.length === 0 && filesChanged.length === 0 && artifacts.length === 0 && (
-        <div className="px-4 py-4">
-          <p className="text-sm text-muted-foreground">
-            Tasks and file changes will appear here as the agent works.
-          </p>
-        </div>
-      )}
+      {tasks.length === 0 &&
+        filesChanged.length === 0 &&
+        artifacts.length === 0 &&
+        !hasPreviews && (
+          <div className="px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Tasks and file changes will appear here as the agent works.
+            </p>
+          </div>
+        )}
     </>
   );
 }
@@ -101,6 +123,7 @@ export function SessionRightSidebar({
   participants,
   events,
   artifacts,
+  codeServer,
 }: SessionRightSidebarProps) {
   return (
     <aside className="w-80 border-l border-border-muted overflow-y-auto hidden lg:block">
@@ -109,6 +132,7 @@ export function SessionRightSidebar({
         participants={participants}
         events={events}
         artifacts={artifacts}
+        codeServer={codeServer}
       />
     </aside>
   );

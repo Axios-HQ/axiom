@@ -189,6 +189,7 @@ function SessionPageContent() {
     currentParticipantId,
     isProcessing,
     loadingHistory,
+    codeServer,
     sendPrompt,
     stopExecution,
     sendTyping,
@@ -356,6 +357,7 @@ function SessionPageContent() {
       fileUpload={fileUpload}
       fileInputRef={fileInputRef}
       handlePaste={handlePaste}
+      codeServer={codeServer}
     />
   );
 }
@@ -393,6 +395,7 @@ function SessionContent({
   fileUpload,
   fileInputRef,
   handlePaste,
+  codeServer,
 }: {
   sessionState: SessionState;
   connected: boolean;
@@ -426,6 +429,7 @@ function SessionContent({
   fileUpload: ReturnType<typeof useFileUpload>;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   handlePaste: (e: React.ClipboardEvent) => void;
+  codeServer?: ReturnType<typeof useSessionSocket>["codeServer"];
 }) {
   const { isOpen, toggle } = useSidebarContext();
   const isBelowLg = useMediaQuery("(max-width: 1023px)");
@@ -692,6 +696,7 @@ function SessionContent({
           participants={participants}
           events={events}
           artifacts={artifacts}
+          codeServer={codeServer}
         />
       </main>
 
@@ -743,6 +748,7 @@ function SessionContent({
                   participants={participants}
                   events={events}
                   artifacts={artifacts}
+                  codeServer={codeServer}
                 />
               </div>
             </div>
@@ -771,6 +777,7 @@ function SessionContent({
                   participants={participants}
                   events={events}
                   artifacts={artifacts}
+                  codeServer={codeServer}
                 />
               </div>
             </div>

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { initSession, queryDO, seedMessage } from "./helpers";
+import {
+  collectMessages,
+  initNamedSession,
+  initSession,
+  openClientWs,
+  queryDO,
+  seedMessage,
+} from "./helpers";
 
 describe("POST /internal/sandbox-event", () => {
   it("stores token event", async () => {
@@ -302,5 +309,159 @@ describe("POST /internal/sandbox-event", () => {
     expect(events[0].id).toBe("token:msg-order");
     expect(events[0].messageId).toBe("msg-order");
     expect(events[0].data.content).toBe("token-2");
+  });
+
+  it("code_server_ready broadcasts credentials without persisting secret event", async () => {
+    const name = `code-server-ready-${Date.now()}`;
+    const { stub } = await initNamedSession(name);
+    const { ws } = await openClientWs(name, { subscribe: true });
+
+    const collector = collectMessages(ws, {
+      until: (msg) => msg.type === "code_server_ready",
+      timeoutMs: 2000,
+    });
+
+    const res = await stub.fetch("http://internal/internal/code-server-ready", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://code.example.com",
+        password: "super-secret-password",
+        sandboxId: "sb-1",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const messages = await collector;
+    const ready = messages.find((m) => m.type === "code_server_ready") as
+      | { type: "code_server_ready"; url: string; password: string }
+      | undefined;
+    expect(ready).toBeDefined();
+    expect(ready?.url).toBe("https://code.example.com");
+    expect(ready?.password).toBe("super-secret-password");
+
+    const persistedEvents = await queryDO<{ type: string }>(
+      stub,
+      "SELECT type FROM events WHERE type = 'code_server_ready'"
+    );
+    expect(persistedEvents).toHaveLength(0);
+
+    const artifacts = await queryDO<{ id: string; type: string; metadata: string }>(
+      stub,
+      "SELECT id, type, metadata FROM artifacts WHERE id = 'preview:code-server'"
+    );
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].type).toBe("preview");
+    const metadata = JSON.parse(artifacts[0].metadata);
+    expect(metadata.kind).toBe("code_server");
+
+    ws.close();
+  });
+
+  it("preview_url upserts per repo+label and preserves distinct multi-repo previews", async () => {
+    const { stub } = await initSession();
+
+    const first = await stub.fetch("http://internal/internal/preview-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://frontend-web.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        status: "active",
+      }),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await stub.fetch("http://internal/internal/preview-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://frontend-api.example.com",
+        label: "frontend",
+        repo: "acme/api",
+        status: "active",
+      }),
+    });
+    expect(second.status).toBe(200);
+
+    const artifactsAfterTwoRepos = await queryDO<{ id: string; url: string }>(
+      stub,
+      "SELECT id, url FROM artifacts WHERE type = 'preview' ORDER BY id ASC"
+    );
+    expect(artifactsAfterTwoRepos.map((a) => a.id)).toEqual([
+      "preview:acme/api:frontend",
+      "preview:acme/web:frontend",
+    ]);
+
+    const third = await stub.fetch("http://internal/internal/preview-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://frontend-web-v2.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        status: "outdated",
+      }),
+    });
+    expect(third.status).toBe(200);
+
+    const artifactsAfterUpsert = await queryDO<{ id: string; url: string; metadata: string }>(
+      stub,
+      "SELECT id, url, metadata FROM artifacts WHERE type = 'preview' ORDER BY id ASC"
+    );
+    expect(artifactsAfterUpsert).toHaveLength(2);
+
+    const webArtifact = artifactsAfterUpsert.find((a) => a.id === "preview:acme/web:frontend");
+    expect(webArtifact?.url).toBe("https://frontend-web-v2.example.com");
+    const webMetadata = webArtifact ? JSON.parse(webArtifact.metadata) : null;
+    expect(webMetadata?.previewStatus).toBe("outdated");
+
+    const events = await queryDO<{ type: string }>(
+      stub,
+      "SELECT type FROM events WHERE type = 'preview_url'"
+    );
+    expect(events).toHaveLength(3);
+  });
+
+  it("preview_url broadcasts artifact_created to subscribed clients", async () => {
+    const name = `preview-broadcast-${Date.now()}`;
+    const { stub } = await initNamedSession(name);
+    const { ws } = await openClientWs(name, { subscribe: true });
+
+    const collector = collectMessages(ws, {
+      until: (msg) => msg.type === "artifact_created",
+      timeoutMs: 2000,
+    });
+
+    const res = await stub.fetch("http://internal/internal/preview-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: "https://preview.example.com",
+        label: "frontend",
+        repo: "acme/web",
+        status: "active",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const messages = await collector;
+    const artifactCreated = messages.find((m) => m.type === "artifact_created") as
+      | {
+          type: "artifact_created";
+          artifact: { id: string; type: string; url: string; metadata?: Record<string, unknown> };
+        }
+      | undefined;
+    expect(artifactCreated).toBeDefined();
+    expect(artifactCreated?.artifact.id).toBe("preview:acme/web:frontend");
+    expect(artifactCreated?.artifact.type).toBe("preview");
+    expect(artifactCreated?.artifact.url).toBe("https://preview.example.com");
+    expect(artifactCreated?.artifact.metadata?.label).toBe("frontend");
+    expect(artifactCreated?.artifact.metadata?.repo).toBe("acme/web");
+
+    ws.close();
   });
 });

@@ -45,6 +45,12 @@ interface UseSessionSocketReturn {
   isProcessing: boolean;
   hasMoreHistory: boolean;
   loadingHistory: boolean;
+  /**
+   * code-server credentials delivered over the authenticated WS channel.
+   * The password is session-scoped and rotated on each sandbox restore.
+   * It is kept in React state only (never persisted or logged).
+   */
+  codeServer: { url: string; password: string } | null;
   sendPrompt: (
     content: string,
     model?: string,
@@ -118,13 +124,16 @@ function toUiArtifact(artifact: {
   type: string;
   url: string;
   prNumber?: number;
+  metadata?: Record<string, unknown>;
+  createdAt?: number;
 }): Artifact {
   return {
     id: artifact.id,
     type: artifact.type as Artifact["type"],
     url: artifact.url,
-    createdAt: Date.now(),
-    metadata: artifact.prNumber ? { prNumber: artifact.prNumber } : undefined,
+    createdAt: artifact.createdAt ?? Date.now(),
+    metadata:
+      artifact.metadata ?? (artifact.prNumber ? { prNumber: artifact.prNumber } : undefined),
   };
 }
 
@@ -153,6 +162,8 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
+  // code-server credentials (session-scoped, kept in memory only).
+  const [codeServer, setCodeServer] = useState<{ url: string; password: string } | null>(null);
   const currentParticipantRef = useRef<{
     participantId: string;
     name: string;
@@ -308,10 +319,23 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
             // Avoid duplicates
             const existing = prev.find((a) => a.id === data.artifact.id);
             if (existing) {
-              return prev.map((a) => (a.id === data.artifact.id ? toUiArtifact(data.artifact) : a));
+              return prev.map((a) => {
+                if (a.id !== data.artifact.id) return a;
+                const updated = toUiArtifact(data.artifact);
+                return {
+                  ...updated,
+                  metadata: updated.metadata ?? a.metadata,
+                  createdAt: updated.createdAt ?? a.createdAt,
+                };
+              });
             }
             return [...prev, toUiArtifact(data.artifact)];
           });
+          break;
+
+        case "code_server_ready":
+          // Store credentials in component state only — never persisted or logged.
+          setCodeServer({ url: data.url, password: data.password });
           break;
 
         case "session_status":
@@ -646,6 +670,7 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
     isProcessing,
     hasMoreHistory,
     loadingHistory,
+    codeServer,
     sendPrompt,
     stopExecution,
     sendTyping,
