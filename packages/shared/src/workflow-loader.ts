@@ -236,8 +236,10 @@ export function validateDispatchConfig(config: WorkflowConfig):
   }
 
   // tracker.api_key is required (after $ resolution)
-  const apiKey = resolveEnvVar(config.tracker.api_key || "LINEAR_API_KEY");
-  if (!apiKey) {
+  const apiKey = config.tracker.api_key
+    ? resolveEnvVar(config.tracker.api_key)
+    : (process.env.LINEAR_API_KEY ?? null);
+  if (!apiKey || apiKey.trim() === "") {
     return {
       ok: false,
       error:

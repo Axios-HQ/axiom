@@ -49,7 +49,6 @@ export class LinearClient {
           }
           first: $pageSize
           after: $after
-          orderBy: { createdAt: StartOfDay }
         ) {
           nodes {
             id

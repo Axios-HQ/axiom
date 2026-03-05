@@ -130,10 +130,18 @@ class TemplateEngine {
       }
 
       if (typeof value === "object") {
-        value = (value as Record<string, unknown>)[part];
+        const record = value as Record<string, unknown>;
+        if (!(part in record)) {
+          throw new Error(`Unknown variable: ${path}`);
+        }
+        value = record[part];
       } else {
         throw new Error(`Cannot access property '${part}' on non-object value`);
       }
+    }
+
+    if (value === undefined) {
+      throw new Error(`Unknown variable: ${path}`);
     }
 
     return value;

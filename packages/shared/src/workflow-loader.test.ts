@@ -13,6 +13,10 @@ import {
 } from "./workflow-loader";
 
 describe("Workflow Loader", () => {
+  beforeEach(() => {
+    delete process.env.LINEAR_API_KEY;
+  });
+
   describe("parseWorkflowFile", () => {
     it("should parse workflow with YAML front matter", () => {
       const content = `---
@@ -80,6 +84,7 @@ Just prompt`;
     });
 
     it("should reject missing api_key", () => {
+      delete process.env.LINEAR_API_KEY;
       const result = validateDispatchConfig({
         tracker: { kind: "linear", project_slug: "TEST" } as any,
       });

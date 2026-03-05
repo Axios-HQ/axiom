@@ -9,7 +9,6 @@ export * from "./models";
 export * from "./cron";
 export * from "./workflow-loader";
 export * from "./linear-client";
-export * from "./workspace-manager";
 export * from "./prompt-renderer";
 export * from "./orchestrator";
 export * from "./orchestrator-controller";
