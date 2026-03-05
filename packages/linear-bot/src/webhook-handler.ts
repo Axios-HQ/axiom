@@ -14,6 +14,7 @@ import {
   getLinearClient,
   emitAgentActivity,
   fetchIssueDetails,
+  fetchUserIdentity,
   updateAgentSession,
   getRepoSuggestions,
 } from "./utils/linear-client";
@@ -367,11 +368,34 @@ async function handleNewSession(
     return;
   }
 
+  // ─── Resolve user identity (for PR attribution) ────────────────────────
+
+  let scmUserId: string | undefined;
+  let scmName: string | undefined;
+  let scmEmail: string | undefined;
+  const appUserId = webhook.appUserId;
+
+  if (appUserId) {
+    const userIdentity = await fetchUserIdentity(client, appUserId);
+    if (userIdentity) {
+      scmName = userIdentity.displayName || userIdentity.name;
+      scmEmail = userIdentity.email;
+      if (userIdentity.gitHubUserId) {
+        scmUserId = userIdentity.gitHubUserId;
+        log.info("agent_session.user_identity_resolved", {
+          trace_id: traceId,
+          linear_user_id: appUserId,
+          github_user_id: userIdentity.gitHubUserId,
+          email: userIdentity.email,
+        });
+      }
+    }
+  }
+
   // ─── Resolve model ────────────────────────────────────────────────────
 
   let userModel: string | undefined;
   let userReasoningEffort: string | undefined;
-  const appUserId = webhook.appUserId;
   if (appUserId) {
     const prefs = await getUserPreferences(env, appUserId);
     if (prefs?.model) {
@@ -416,6 +440,10 @@ async function handleNewSession(
       title: `${issue.identifier}: ${issue.title}`,
       model,
       reasoningEffort,
+      userId: `linear:${appUserId}`,
+      scmUserId,
+      scmName,
+      scmEmail,
     }),
   });
 

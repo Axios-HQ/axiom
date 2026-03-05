@@ -13,6 +13,10 @@ import {
 import { SessionIndexStore } from "./db/session-index";
 import { UserScmTokenStore, DEFAULT_TOKEN_LIFETIME_MS } from "./db/user-scm-tokens";
 import { IdentityLinksStore, type IdentityProvider } from "./db/identity-links";
+import {
+  resolveGitHubUserById,
+  resolveGitHubUserByEmail,
+} from "./source-control/github-user-resolver";
 
 import {
   getValidModelOrDefault,
@@ -687,12 +691,20 @@ async function handleCreateSession(
   const scmToken = body.scmToken;
   let scmTokenEncrypted: string | null = null;
 
-  // For Slack/Linear-triggered sessions, enrich participant identity with a linked GitHub user.
+  // For Slack/Linear-triggered sessions, resolve the GitHub identity.
+  // Resolution order:
+  //   1. Existing identity_link (cached from a previous resolution or manual link)
+  //   2. scmUserId from Linear's gitHubUserId field → GitHub API GET /user/:id
+  //   3. scmEmail from Slack users.info → GitHub API search by email
+  // Successful resolutions are auto-persisted to identity_links for future lookups.
   if (!scmLogin) {
+    const identityStore = new IdentityLinksStore(env.DB);
     const externalIdentity = parseExternalIdentity(userId);
+
+    // 1. Check cached identity link
     if (externalIdentity) {
       try {
-        const identityLink = await new IdentityLinksStore(env.DB).getByProviderExternal(
+        const identityLink = await identityStore.getByProviderExternal(
           externalIdentity.provider,
           externalIdentity.externalUserId
         );
@@ -702,9 +714,9 @@ async function handleCreateSession(
           scmName = scmName || identityLink.githubName || undefined;
           logger.info("identity_link.resolved", {
             event: "identity_link.resolved",
+            method: "cached",
             provider: externalIdentity.provider,
             external_user_id: externalIdentity.externalUserId,
-            github_user_id: identityLink.githubUserId,
             github_login: identityLink.githubLogin,
             user_id: userId,
             trace_id: ctx.trace_id,
@@ -717,6 +729,99 @@ async function handleCreateSession(
           provider: externalIdentity.provider,
           external_user_id: externalIdentity.externalUserId,
           user_id: userId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+
+    // 2. If still no login but we have a GitHub user ID (from Linear's gitHubUserId),
+    //    resolve it via the GitHub API.
+    if (!scmLogin && scmUserId) {
+      try {
+        const ghUser = await resolveGitHubUserById(scmUserId);
+        if (ghUser) {
+          scmLogin = ghUser.login;
+          scmName = scmName || ghUser.name || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "github_user_id",
+            github_user_id: scmUserId,
+            github_login: ghUser.login,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+
+          // Auto-persist the link for future lookups
+          if (externalIdentity) {
+            await identityStore
+              .upsert({
+                provider: externalIdentity.provider,
+                externalUserId: externalIdentity.externalUserId,
+                githubUserId: scmUserId,
+                githubLogin: ghUser.login,
+                githubName: ghUser.name,
+                createdBy: "auto:github_user_id",
+              })
+              .catch((e) =>
+                logger.warn("identity_link.auto_upsert_failed", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+          }
+        }
+      } catch (e) {
+        logger.warn("identity_link.github_user_lookup_failed", {
+          github_user_id: scmUserId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+
+    // 3. If still no login but we have an email (from Slack users.info),
+    //    search GitHub for a user with that email.
+    if (!scmLogin && scmEmail) {
+      try {
+        const ghUser = await resolveGitHubUserByEmail(scmEmail);
+        if (ghUser) {
+          scmLogin = ghUser.login;
+          scmUserId = scmUserId || String(ghUser.id);
+          scmName = scmName || ghUser.name || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "email",
+            email: scmEmail,
+            github_login: ghUser.login,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+
+          // Auto-persist the link
+          if (externalIdentity) {
+            await identityStore
+              .upsert({
+                provider: externalIdentity.provider,
+                externalUserId: externalIdentity.externalUserId,
+                githubUserId: String(ghUser.id),
+                githubLogin: ghUser.login,
+                githubName: ghUser.name,
+                createdBy: "auto:email",
+              })
+              .catch((e) =>
+                logger.warn("identity_link.auto_upsert_failed", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+          }
+        }
+      } catch (e) {
+        logger.warn("identity_link.email_lookup_failed", {
+          email: scmEmail,
           error: e instanceof Error ? e.message : String(e),
           trace_id: ctx.trace_id,
           request_id: ctx.request_id,
