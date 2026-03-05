@@ -7,6 +7,7 @@
 
 import type {
   SessionRow,
+  SessionRepoRow,
   ParticipantRow,
   MessageRow,
   EventRow,
@@ -71,6 +72,16 @@ export interface UpsertSessionData {
   spawnDepth?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface UpsertSessionRepoData {
+  id: string;
+  repoOwner: string;
+  repoName: string;
+  repoId: number | null;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
 }
 
 /**
@@ -271,6 +282,29 @@ export class SessionRepository {
       updatedAt,
       sessionId
     );
+  }
+
+  upsertSessionRepos(repos: UpsertSessionRepoData[]): void {
+    this.sql.exec(`DELETE FROM session_repos`);
+
+    for (const repo of repos) {
+      this.sql.exec(
+        `INSERT INTO session_repos (id, repo_owner, repo_name, repo_id, order_index, is_primary, is_editable)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        repo.id,
+        repo.repoOwner,
+        repo.repoName,
+        repo.repoId,
+        repo.order,
+        repo.isPrimary ? 1 : 0,
+        repo.isEditable ? 1 : 0
+      );
+    }
+  }
+
+  listSessionRepos(): SessionRepoRow[] {
+    const result = this.sql.exec(`SELECT * FROM session_repos ORDER BY order_index ASC`);
+    return this.rows<SessionRepoRow>(result);
   }
 
   // === SANDBOX ===

@@ -40,6 +40,16 @@ export interface SessionRow {
   updated_at: number;
 }
 
+export interface SessionRepoRow {
+  id: string;
+  repo_owner: string;
+  repo_name: string;
+  repo_id: number | null;
+  order_index: number;
+  is_primary: number;
+  is_editable: number;
+}
+
 export interface ParticipantRow {
   id: string;
   user_id: string;

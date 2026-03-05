@@ -23,6 +23,11 @@ describe("DO internal sub-session routes", () => {
       expect(context.repoOwner).toBe("acme");
       expect(context.repoName).toBe("web-app");
       expect(context.repoId).toBe(12345);
+      expect(context.sessionRepos?.[0]).toMatchObject({
+        repoOwner: "acme",
+        repoName: "web-app",
+        isPrimary: true,
+      });
       expect(context.model).toBe("anthropic/claude-sonnet-4-6");
       expect(context.reasoningEffort).toBeNull();
 

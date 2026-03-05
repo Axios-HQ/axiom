@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
     const sessionBody = {
       repoOwner: body.repoOwner,
       repoName: body.repoName,
+      sessionRepos: body.sessionRepos,
+      allowSecondaryRepoEdit: body.allowSecondaryRepoEdit,
       model: body.model,
       reasoningEffort: body.reasoningEffort,
       branch: body.branch,

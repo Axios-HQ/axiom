@@ -31,6 +31,7 @@ import {
 import { extractProviderAndModel } from "../../utils/models";
 import { createLogger, type Logger } from "../../logger";
 import { hashToken } from "../../auth/crypto";
+import type { SessionRepoScope } from "@open-inspect/shared";
 
 const log = createLogger("lifecycle-manager");
 
@@ -57,6 +58,8 @@ export interface SandboxStorage {
   getSandboxWithCircuitBreaker(): SandboxCircuitBreakerInfo | null;
   /** Get current session */
   getSession(): SessionRow | null;
+  /** Get ordered session repository scope. */
+  getSessionRepos(): SessionRepoScope[];
   /** Get user env vars for sandbox injection */
   getUserEnvVars(): Promise<Record<string, string> | undefined>;
   /** Update sandbox status */
@@ -327,6 +330,7 @@ export class SandboxLifecycleManager {
       });
 
       const userEnvVars = await this.storage.getUserEnvVars();
+      const sessionRepos = this.storage.getSessionRepos();
       const { provider, model: modelId } = this.resolveProviderAndModel(session);
 
       // Look up pre-built repo image (graceful fallback on failure)
@@ -372,6 +376,7 @@ export class SandboxLifecycleManager {
         repoImageSha,
         timeoutSeconds,
         branch: session.base_branch,
+        sessionRepos,
       };
 
       const result = await this.provider.createSandbox(createConfig);
@@ -470,6 +475,7 @@ export class SandboxLifecycleManager {
       });
 
       const userEnvVars = await this.storage.getUserEnvVars();
+      const sessionRepos = this.storage.getSessionRepos();
       const { provider, model: modelId } = this.resolveProviderAndModel(session);
 
       // Child sessions get a shorter timeout (same logic as doSpawn)
@@ -489,6 +495,7 @@ export class SandboxLifecycleManager {
         userEnvVars,
         timeoutSeconds,
         branch: session.base_branch,
+        sessionRepos,
       });
 
       if (result.success) {

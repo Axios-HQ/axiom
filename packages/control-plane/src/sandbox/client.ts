@@ -38,6 +38,14 @@ export interface CreateSandboxRequest {
   repoImageSha?: string | null;
   timeoutSeconds?: number;
   branch?: string;
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    repoId: number | null;
+    order: number;
+    isPrimary: boolean;
+    isEditable: boolean;
+  }>;
 }
 
 export interface CreateSandboxResponse {
@@ -60,6 +68,14 @@ export interface RestoreSandboxRequest {
   userEnvVars?: Record<string, string>;
   timeoutSeconds?: number;
   branch?: string;
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    repoId: number | null;
+    order: number;
+    isPrimary: boolean;
+    isEditable: boolean;
+  }>;
 }
 
 export interface RestoreSandboxResponse {
@@ -244,6 +260,7 @@ export class ModalClient {
           repo_image_sha: request.repoImageSha || null,
           timeout_seconds: request.timeoutSeconds || null,
           branch: request.branch || null,
+          session_repos: request.sessionRepos || null,
         }),
       });
 
@@ -313,6 +330,7 @@ export class ModalClient {
             provider: request.provider,
             model: request.model,
             branch: request.branch || null,
+            session_repos: request.sessionRepos || null,
           },
           sandbox_id: request.sandboxId,
           control_plane_url: request.controlPlaneUrl,

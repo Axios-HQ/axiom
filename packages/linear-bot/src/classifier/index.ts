@@ -31,6 +31,10 @@ interface AnthropicResponse {
   content: AnthropicContentBlock[];
 }
 
+function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
+  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
+}
+
 /**
  * Build classification prompt from Linear issue context.
  */
@@ -228,7 +232,7 @@ export async function classifyRepo(
       repo: null,
       confidence: "low",
       reasoning: "Could not classify repository. Please configure project→repo mapping.",
-      alternatives: repos.slice(0, 5),
+      alternatives: getDeterministicAlternatives(repos),
       needsClarification: true,
     };
   }

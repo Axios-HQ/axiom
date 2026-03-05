@@ -16,6 +16,7 @@ import {
   LinkIcon,
 } from "@/components/ui/icons";
 import { Badge, prBadgeVariant } from "@/components/ui/badge";
+import type { SessionRepoScope } from "@open-inspect/shared";
 
 interface MetadataSectionProps {
   createdAt: number;
@@ -25,6 +26,7 @@ interface MetadataSectionProps {
   branchName?: string;
   repoOwner?: string;
   repoName?: string;
+  sessionRepos?: SessionRepoScope[];
   artifacts?: Artifact[];
   parentSessionId?: string | null;
 }
@@ -37,6 +39,7 @@ export function MetadataSection({
   branchName,
   repoOwner,
   repoName,
+  sessionRepos,
   artifacts = [],
   parentSessionId,
 }: MetadataSectionProps) {
@@ -184,6 +187,17 @@ export function MetadataSection({
           >
             {repoOwner}/{repoName}
           </a>
+        </div>
+      )}
+
+      {sessionRepos && sessionRepos.length > 1 && (
+        <div className="text-xs text-muted-foreground space-y-1">
+          {sessionRepos.map((repo) => (
+            <div key={`${repo.repoOwner}/${repo.repoName}/${repo.order}`}>
+              {repo.isPrimary ? "Primary" : "Secondary"} ·{" "}
+              {repo.isEditable ? "editable" : "read-only"} · {repo.repoOwner}/{repo.repoName}
+            </div>
+          ))}
         </div>
       )}
     </div>

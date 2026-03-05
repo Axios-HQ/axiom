@@ -29,6 +29,18 @@ CREATE TABLE IF NOT EXISTS session (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_repos (
+  id TEXT PRIMARY KEY,
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  repo_id INTEGER,
+  order_index INTEGER NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  is_editable INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_repos_order ON session_repos(order_index ASC);
+
 -- Participants in the session
 CREATE TABLE IF NOT EXISTS participants (
   id TEXT PRIMARY KEY,
@@ -338,6 +350,26 @@ export const MIGRATIONS: readonly SchemaMigration[] = [
       ALTER TABLE session ADD COLUMN spawn_source TEXT NOT NULL DEFAULT 'user';
       ALTER TABLE session ADD COLUMN spawn_depth INTEGER NOT NULL DEFAULT 0;
     `,
+  },
+  {
+    id: 26,
+    description: "Create session_repos table",
+    run: (sql) => {
+      sql.exec(`
+        CREATE TABLE IF NOT EXISTS session_repos (
+          id TEXT PRIMARY KEY,
+          repo_owner TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          repo_id INTEGER,
+          order_index INTEGER NOT NULL,
+          is_primary INTEGER NOT NULL DEFAULT 0,
+          is_editable INTEGER NOT NULL DEFAULT 0
+        )
+      `);
+      sql.exec(`
+        CREATE INDEX IF NOT EXISTS idx_session_repos_order ON session_repos(order_index ASC)
+      `);
+    },
   },
 ];
 

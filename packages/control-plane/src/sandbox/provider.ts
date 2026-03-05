@@ -57,6 +57,15 @@ export interface CreateSandboxConfig {
   timeoutSeconds?: number;
   /** Git branch to work on (defaults to repo's default branch) */
   branch?: string;
+  /** Session-level repository scope (ordered). */
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    repoId: number | null;
+    order: number;
+    isPrimary: boolean;
+    isEditable: boolean;
+  }>;
 }
 
 /**
@@ -101,6 +110,15 @@ export interface RestoreConfig {
   timeoutSeconds?: number;
   /** Git branch to work on (defaults to repo's default branch) */
   branch?: string;
+  /** Session-level repository scope (ordered). */
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    repoId: number | null;
+    order: number;
+    isPrimary: boolean;
+    isEditable: boolean;
+  }>;
   /** Correlation context for downstream tracing */
   correlation?: CorrelationContext;
 }

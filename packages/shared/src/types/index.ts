@@ -45,6 +45,15 @@ export type ParticipantRole = "owner" | "member";
 export type SpawnSource = "user" | "agent" | "automation";
 export type ConfidenceLevel = "high" | "medium" | "low";
 
+export interface SessionRepoScope {
+  repoOwner: string;
+  repoName: string;
+  repoId: number | null;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
+}
+
 // Participant in a session
 export interface SessionParticipant {
   id: string;
@@ -61,6 +70,7 @@ export interface Session {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  sessionRepos?: SessionRepoScope[];
   baseBranch: string;
   branchName: string | null;
   baseSha: string | null;
@@ -317,6 +327,7 @@ export interface SessionState {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  sessionRepos?: SessionRepoScope[];
   baseBranch: string;
   branchName: string | null;
   status: SessionStatus;
@@ -492,6 +503,12 @@ export type CallbackContext =
 export interface CreateSessionRequest {
   repoOwner: string;
   repoName: string;
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    editable?: boolean;
+  }>;
+  allowSecondaryRepoEdit?: boolean;
   title?: string;
   model?: string;
   reasoningEffort?: string;
@@ -526,6 +543,7 @@ export interface SpawnContext {
   repoOwner: string;
   repoName: string;
   repoId: number | null;
+  sessionRepos?: SessionRepoScope[];
   model: string;
   reasoningEffort: string | null;
   owner: {

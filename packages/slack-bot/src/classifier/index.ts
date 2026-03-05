@@ -45,6 +45,10 @@ const CLASSIFY_REPO_TOOL: Anthropic.Messages.Tool = {
   },
 };
 
+function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
+  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
+}
+
 /**
  * Build the classification prompt for the LLM.
  */
@@ -301,7 +305,7 @@ export class RepoClassifier {
         confidence: "low",
         reasoning:
           "Could not classify repository from structured model output. Please select a repository.",
-        alternatives: repos.slice(0, 5),
+        alternatives: getDeterministicAlternatives(repos),
         needsClarification: true,
       };
     }

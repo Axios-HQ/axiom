@@ -757,6 +757,33 @@ class AgentBridge:
     }
     ANTHROPIC_ADAPTIVE_EFFORTS: ClassVar[set[str]] = {"low", "medium", "high", "max"}
 
+    def _build_repo_scope_preamble(self) -> str:
+        session_repos = self.session_config.get("session_repos")
+        if not isinstance(session_repos, list) or len(session_repos) == 0:
+            return ""
+
+        lines = [
+            "Repository scope for this session:",
+            "- Use only repositories listed below.",
+            "- You may edit only repositories marked editable.",
+        ]
+
+        for repo in session_repos:
+            if not isinstance(repo, dict):
+                continue
+            owner = str(repo.get("repoOwner") or repo.get("repo_owner") or "").strip()
+            name = str(repo.get("repoName") or repo.get("repo_name") or "").strip()
+            if not owner or not name:
+                continue
+            role = "primary" if bool(repo.get("isPrimary")) else "secondary"
+            mode = "editable" if bool(repo.get("isEditable")) else "read-only"
+            lines.append(f"- {owner}/{name} ({role}, {mode})")
+
+        if len(lines) <= 3:
+            return ""
+
+        return "\n".join(lines) + "\n\n"
+
     def _build_prompt_request_body(
         self,
         content: str,
@@ -776,7 +803,8 @@ class AgentBridge:
             reasoning_effort: Optional reasoning effort level (e.g., "high", "max")
             attachments: Optional list of file/image attachments with R2 URLs
         """
-        parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
+        content_with_scope = self._build_repo_scope_preamble() + content
+        parts: list[dict[str, Any]] = [{"type": "text", "text": content_with_scope}]
 
         if isinstance(attachments, list):
             for att in attachments:
