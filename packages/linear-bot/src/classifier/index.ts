@@ -5,6 +5,7 @@
 
 import type { Env, RepoConfig, ClassificationResult } from "../types";
 import type { ConfidenceLevel } from "@open-inspect/shared";
+import { getDeterministicAlternatives } from "@open-inspect/shared";
 import { getAvailableRepos, buildRepoDescriptions } from "./repos";
 import { createLogger } from "../logger";
 
@@ -29,10 +30,6 @@ interface AnthropicContentBlock {
 
 interface AnthropicResponse {
   content: AnthropicContentBlock[];
-}
-
-function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
-  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
 }
 
 /**

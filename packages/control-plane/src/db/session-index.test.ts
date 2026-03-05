@@ -357,7 +357,11 @@ describe("SessionIndexStore", () => {
       await store.create(session);
 
       const result = await store.get("scope-1");
-      expect(result?.sessionReposJson).toContain('"repoName":"web-app"');
+      expect(JSON.parse(result?.sessionReposJson ?? "[]")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ repoOwner: "acme", repoName: "web-app" }),
+        ])
+      );
     });
   });
 

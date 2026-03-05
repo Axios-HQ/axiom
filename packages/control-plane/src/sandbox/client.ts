@@ -6,6 +6,7 @@
  */
 
 import { generateInternalToken } from "@open-inspect/shared";
+import type { SessionRepoScope } from "@open-inspect/shared";
 import { createLogger } from "../logger";
 import type { CorrelationContext } from "../logger";
 
@@ -38,14 +39,7 @@ export interface CreateSandboxRequest {
   repoImageSha?: string | null;
   timeoutSeconds?: number;
   branch?: string;
-  sessionRepos?: Array<{
-    repoOwner: string;
-    repoName: string;
-    repoId: number | null;
-    order: number;
-    isPrimary: boolean;
-    isEditable: boolean;
-  }>;
+  sessionRepos?: SessionRepoScope[];
 }
 
 export interface CreateSandboxResponse {
@@ -68,14 +62,7 @@ export interface RestoreSandboxRequest {
   userEnvVars?: Record<string, string>;
   timeoutSeconds?: number;
   branch?: string;
-  sessionRepos?: Array<{
-    repoOwner: string;
-    repoName: string;
-    repoId: number | null;
-    order: number;
-    isPrimary: boolean;
-    isEditable: boolean;
-  }>;
+  sessionRepos?: SessionRepoScope[];
 }
 
 export interface RestoreSandboxResponse {

@@ -403,6 +403,14 @@ export interface ClassificationResult {
   needsClarification: boolean;
 }
 
+/**
+ * Returns a deterministic (sorted) subset of repos for fallback classification.
+ * Used when LLM classification fails to provide a stable, reproducible result.
+ */
+export function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
+  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
+}
+
 export interface EventResponse {
   id: string;
   type: EventType;

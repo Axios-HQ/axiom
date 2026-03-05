@@ -673,8 +673,19 @@ async function handleCreateSession(
     resolvedSessionRepos = [];
     for (let index = 0; index < requestedSessionRepos.length; index++) {
       const requested = requestedSessionRepos[index];
-      const normalizedOwner = requested.repoOwner.toLowerCase();
-      const normalizedName = requested.repoName.toLowerCase();
+      if (
+        typeof requested.repoOwner !== "string" ||
+        requested.repoOwner.trim().length === 0 ||
+        typeof requested.repoName !== "string" ||
+        requested.repoName.trim().length === 0
+      ) {
+        return error(
+          `sessionRepos[${index}] must have non-empty string repoOwner and repoName`,
+          400
+        );
+      }
+      const normalizedOwner = requested.repoOwner.trim().toLowerCase();
+      const normalizedName = requested.repoName.trim().toLowerCase();
       const resolved = await resolveInstalledRepo(provider, normalizedOwner, normalizedName);
       if (!resolved) {
         return error(
@@ -1024,6 +1035,8 @@ async function handleCreatePR(
     baseBranch?: string;
     headBranch?: string;
     draft?: boolean;
+    repoOwner?: string;
+    repoName?: string;
   };
 
   if (
@@ -1047,6 +1060,14 @@ async function handleCreatePR(
     return error("draft must be a boolean");
   }
 
+  if (body.repoOwner != null && typeof body.repoOwner !== "string") {
+    return error("repoOwner must be a string");
+  }
+
+  if (body.repoName != null && typeof body.repoName !== "string") {
+    return error("repoName must be a string");
+  }
+
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
@@ -1062,6 +1083,8 @@ async function handleCreatePR(
           baseBranch: body.baseBranch,
           headBranch: body.headBranch,
           draft: body.draft,
+          repoOwner: body.repoOwner,
+          repoName: body.repoName,
         }),
       },
       ctx

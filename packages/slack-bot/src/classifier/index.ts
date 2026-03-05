@@ -8,6 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env, RepoConfig, ThreadContext, ClassificationResult } from "../types";
 import type { ConfidenceLevel } from "@open-inspect/shared";
+import { getDeterministicAlternatives } from "@open-inspect/shared";
 import { getAvailableRepos, buildRepoDescriptions, getReposByChannel } from "./repos";
 import { createLogger } from "../logger";
 
@@ -44,10 +45,6 @@ const CLASSIFY_REPO_TOOL: Anthropic.Messages.Tool = {
     additionalProperties: false,
   },
 };
-
-function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
-  return [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName)).slice(0, 5);
-}
 
 /**
  * Build the classification prompt for the LLM.

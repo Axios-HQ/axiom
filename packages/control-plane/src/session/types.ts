@@ -46,8 +46,8 @@ export interface SessionRepoRow {
   repo_name: string;
   repo_id: number | null;
   order_index: number;
-  is_primary: number;
-  is_editable: number;
+  is_primary: 0 | 1;
+  is_editable: 0 | 1;
 }
 
 export interface ParticipantRow {

@@ -5,6 +5,7 @@
  * enabling unit testing and future provider support.
  */
 
+import type { SessionRepoScope } from "@open-inspect/shared";
 import type { CorrelationContext } from "../logger";
 
 /** Default sandbox lifetime in seconds (2 hours). */
@@ -58,14 +59,7 @@ export interface CreateSandboxConfig {
   /** Git branch to work on (defaults to repo's default branch) */
   branch?: string;
   /** Session-level repository scope (ordered). */
-  sessionRepos?: Array<{
-    repoOwner: string;
-    repoName: string;
-    repoId: number | null;
-    order: number;
-    isPrimary: boolean;
-    isEditable: boolean;
-  }>;
+  sessionRepos?: SessionRepoScope[];
 }
 
 /**
@@ -111,14 +105,7 @@ export interface RestoreConfig {
   /** Git branch to work on (defaults to repo's default branch) */
   branch?: string;
   /** Session-level repository scope (ordered). */
-  sessionRepos?: Array<{
-    repoOwner: string;
-    repoName: string;
-    repoId: number | null;
-    order: number;
-    isPrimary: boolean;
-    isEditable: boolean;
-  }>;
+  sessionRepos?: SessionRepoScope[];
   /** Correlation context for downstream tracing */
   correlation?: CorrelationContext;
 }

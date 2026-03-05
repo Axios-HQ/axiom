@@ -758,7 +758,7 @@ class AgentBridge:
     ANTHROPIC_ADAPTIVE_EFFORTS: ClassVar[set[str]] = {"low", "medium", "high", "max"}
 
     def _build_repo_scope_preamble(self) -> str:
-        session_repos = self.session_config.get("session_repos")
+        session_repos = getattr(self, "session_config", {}).get("session_repos")
         if not isinstance(session_repos, list) or len(session_repos) == 0:
             return ""
 

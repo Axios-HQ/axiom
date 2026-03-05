@@ -32,8 +32,14 @@ export function NewAutomationPageClient() {
         const data = await res.json();
         router.push(`/automations/${data.automation.id}`);
       } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create automation");
+        let errorMessage = "Failed to create automation";
+        try {
+          const data = await res.json();
+          errorMessage = data.error || res.statusText || errorMessage;
+        } catch {
+          errorMessage = res.statusText || errorMessage;
+        }
+        setError(errorMessage);
         setSubmitting(false);
       }
     } catch {

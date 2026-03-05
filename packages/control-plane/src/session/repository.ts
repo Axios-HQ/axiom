@@ -285,6 +285,9 @@ export class SessionRepository {
   }
 
   upsertSessionRepos(repos: UpsertSessionRepoData[]): void {
+    // Cloudflare DO SQLite prohibits manual BEGIN/COMMIT. Writes within a
+    // single request are coalesced atomically by the runtime, so the
+    // delete + inserts below are already effectively atomic.
     this.sql.exec(`DELETE FROM session_repos`);
 
     for (const repo of repos) {
