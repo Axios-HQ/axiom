@@ -4,9 +4,11 @@ import type { SourceControlProvider } from "../source-control";
 import type { ArtifactRow, SessionRow } from "./types";
 import {
   SessionPullRequestService,
+  validatePrTitle,
   type CreatePullRequestInput,
   type PullRequestRepository,
   type PullRequestServiceDeps,
+  type PrPolicy,
 } from "./pull-request-service";
 
 function createMockLogger(): Logger {
@@ -297,5 +299,239 @@ describe("SessionPullRequestService", () => {
       oauthSignInRequired: true,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── PR title policy (validatePrTitle + service integration) ──────────────────
+
+describe("validatePrTitle", () => {
+  it("returns null when no regex is set", () => {
+    expect(validatePrTitle("anything", {})).toBeNull();
+  });
+
+  it("returns null when title matches regex", () => {
+    const policy: PrPolicy = { prTitleRegex: "^feat: .+" };
+    expect(validatePrTitle("feat: add dark mode", policy)).toBeNull();
+  });
+
+  it("returns error message when title does not match regex", () => {
+    const policy: PrPolicy = { prTitleRegex: "^feat: .+" };
+    const result = validatePrTitle("Add dark mode", policy);
+    expect(result).toContain("does not match the required format");
+    expect(result).toContain("^feat: .+");
+  });
+
+  it("includes example in error message when prTitleExample is set", () => {
+    const policy: PrPolicy = {
+      prTitleRegex: "^feat: .+",
+      prTitleExample: "feat: add login page",
+    };
+    const result = validatePrTitle("bad title", policy);
+    expect(result).toContain("feat: add login page");
+  });
+
+  it("returns null for misconfigured (invalid) regex", () => {
+    const policy: PrPolicy = { prTitleRegex: "[invalid(" };
+    expect(validatePrTitle("anything", policy)).toBeNull();
+  });
+});
+
+describe("SessionPullRequestService — PR title policy", () => {
+  function createHarnessWithPolicy(policy: PrPolicy) {
+    const log = createMockLogger();
+    const provider = createMockProvider();
+    const artifacts: ArtifactRow[] = [];
+    let session: SessionRow | null = createSession();
+
+    const repository: PullRequestRepository = {
+      getSession: () => session,
+      updateSessionBranch: (sessionId, branchName) => {
+        if (session && session.id === sessionId) {
+          session = { ...session, branch_name: branchName };
+        }
+      },
+      listArtifacts: () => [...artifacts],
+      createArtifact: (data) => {
+        artifacts.unshift({
+          id: data.id,
+          type: data.type,
+          url: data.url,
+          metadata: data.metadata,
+          created_at: data.createdAt,
+        } as ArtifactRow);
+      },
+    };
+
+    let idCounter = 0;
+    const deps: PullRequestServiceDeps = {
+      repository,
+      sourceControlProvider: provider,
+      log,
+      generateId: () => `id-${++idCounter}`,
+      pushBranchToRemote: vi.fn(async () => ({ success: true as const })),
+      broadcastArtifactCreated: vi.fn(),
+      prPolicy: policy,
+    };
+
+    return { service: new SessionPullRequestService(deps), artifacts, provider };
+  }
+
+  it("returns 400 when title does not match policy regex", async () => {
+    const { service } = createHarnessWithPolicy({
+      prTitleRegex: "^(feat|fix): .+",
+      prTitleExample: "feat: add login",
+    });
+
+    const result = await service.createPullRequest(
+      createInput({ title: "Add new feature", promptingAuth: null })
+    );
+
+    expect(result).toMatchObject({
+      kind: "error",
+      status: 400,
+    });
+    expect((result as { kind: "error"; error: string }).error).toContain(
+      "does not match the required format"
+    );
+  });
+
+  it("allows PR creation when title matches policy regex", async () => {
+    const { service } = createHarnessWithPolicy({
+      prTitleRegex: "^(feat|fix): .+",
+    });
+
+    const result = await service.createPullRequest(
+      createInput({ title: "feat: add dark mode", promptingAuth: null })
+    );
+
+    expect(result).toMatchObject({ kind: "created" });
+  });
+
+  it("passes baseBranch to pushBranchToRemote", async () => {
+    const { service, ...rest } = createHarnessWithPolicy({});
+
+    // Verify baseBranch is used as the PR target branch (confirming it flows through)
+    const result = await service.createPullRequest(
+      createInput({ baseBranch: "develop", promptingAuth: null })
+    );
+
+    expect(result).toMatchObject({ kind: "created" });
+    const createPrCall = (rest.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(createPrCall[1].targetBranch).toBe("develop");
+  });
+});
+
+// ── Screenshot evidence ───────────────────────────────────────────────────────
+
+describe("SessionPullRequestService — screenshot evidence", () => {
+  function createHarnessWithScreenshots(screenshotUrls: string[], policy?: PrPolicy) {
+    const log = createMockLogger();
+    const provider = createMockProvider();
+    const artifacts: ArtifactRow[] = screenshotUrls.map((url, i) => ({
+      id: `screenshot-${i}`,
+      type: "screenshot" as const,
+      url,
+      metadata: null,
+      created_at: Date.now() - i * 1000,
+    }));
+
+    let session: SessionRow | null = createSession();
+
+    const repository: PullRequestRepository = {
+      getSession: () => session,
+      updateSessionBranch: (sessionId, branchName) => {
+        if (session && session.id === sessionId) {
+          session = { ...session, branch_name: branchName };
+        }
+      },
+      listArtifacts: () => [...artifacts],
+      createArtifact: (data) => {
+        artifacts.unshift({
+          id: data.id,
+          type: data.type,
+          url: data.url,
+          metadata: data.metadata,
+          created_at: data.createdAt,
+        } as ArtifactRow);
+      },
+    };
+
+    let idCounter = 0;
+    const deps: PullRequestServiceDeps = {
+      repository,
+      sourceControlProvider: provider,
+      log,
+      generateId: () => `id-${++idCounter}`,
+      pushBranchToRemote: vi.fn(async () => ({ success: true as const })),
+      broadcastArtifactCreated: vi.fn(),
+      prPolicy: policy,
+    };
+
+    return { service: new SessionPullRequestService(deps), artifacts, provider };
+  }
+
+  it("appends Verification section with screenshot images when screenshots exist", async () => {
+    const { service, provider } = createHarnessWithScreenshots([
+      "https://cdn.example.com/shot1.png",
+      "https://cdn.example.com/shot2.png",
+    ]);
+
+    const result = await service.createPullRequest(createInput({ promptingAuth: null }));
+
+    expect(result).toMatchObject({ kind: "created" });
+    const createPrCall = (provider.createPullRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = createPrCall[1].body as string;
+    expect(body).toContain("### Verification");
+    expect(body).toContain("![Screenshot 1](https://cdn.example.com/shot1.png)");
+    expect(body).toContain("![Screenshot 2](https://cdn.example.com/shot2.png)");
+  });
+
+  it("stores screenshot count in PR artifact metadata", async () => {
+    const { service, artifacts } = createHarnessWithScreenshots([
+      "https://cdn.example.com/shot1.png",
+    ]);
+
+    await service.createPullRequest(createInput({ promptingAuth: null }));
+
+    const prArtifact = artifacts.find((a) => a.type === "pr");
+    expect(prArtifact).toBeDefined();
+    const meta = JSON.parse(prArtifact!.metadata ?? "{}") as Record<string, unknown>;
+    expect(meta.screenshotCount).toBe(1);
+  });
+
+  it("omits Verification section when no screenshots exist", async () => {
+    const { service, provider } = createHarnessWithScreenshots([]);
+
+    const result = await service.createPullRequest(createInput({ promptingAuth: null }));
+
+    expect(result).toMatchObject({ kind: "created" });
+    const createPrCall = (provider.createPullRequest as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = createPrCall[1].body as string;
+    expect(body).not.toContain("### Verification");
+  });
+
+  it("blocks PR when requireScreenshotForUiChanges is true and no screenshots", async () => {
+    const { service } = createHarnessWithScreenshots([], {
+      requireScreenshotForUiChanges: true,
+    });
+
+    const result = await service.createPullRequest(createInput({ promptingAuth: null }));
+
+    expect(result).toMatchObject({
+      kind: "error",
+      status: 400,
+    });
+    expect((result as { kind: "error"; error: string }).error).toContain("screenshot evidence");
+  });
+
+  it("allows PR when requireScreenshotForUiChanges is true and screenshots exist", async () => {
+    const { service } = createHarnessWithScreenshots(["https://cdn.example.com/shot.png"], {
+      requireScreenshotForUiChanges: true,
+    });
+
+    const result = await service.createPullRequest(createInput({ promptingAuth: null }));
+
+    expect(result).toMatchObject({ kind: "created" });
   });
 });

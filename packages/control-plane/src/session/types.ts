@@ -151,6 +151,8 @@ export interface AckCommand {
 export interface PushCommand {
   type: "push";
   pushSpec: GitPushSpec;
+  /** Base branch name used for freshness guard in the sandbox. */
+  baseBranch?: string;
 }
 
 export type SandboxCommand =
