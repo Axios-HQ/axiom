@@ -2,6 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import {
   LinearClient,
   OrchestratorController,
+  OrchestratorObservability,
+  OrchestratorEventLogger,
+  logOrchestratorSnapshot,
   getEffectiveConfig,
   parseWorkflowFile,
   renderPromptTemplate,
@@ -230,10 +233,36 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
   }
 
   private async handleState(): Promise<Response> {
+    const state = this.controller.getState();
+    const snapshot = logOrchestratorSnapshot(state);
+
     return Response.json({
       configured: this.isConfigured(),
       workflowProjectSlug: this.effectiveConfig?.tracker.project_slug ?? null,
+      timestamp: Date.now(),
+      // Orchestrator state snapshot
       snapshot: this.controller.getSnapshot(),
+      // Observability metrics
+      observability: {
+        ...snapshot,
+        codexTotals: state.codex_totals,
+        pollIntervalMs: state.poll_interval_ms,
+        maxConcurrentAgents: state.max_concurrent_agents,
+      },
+      // Issue queues
+      queues: {
+        running: Object.keys(state.running),
+        claimed: Array.from(state.claimed),
+        retrying: Object.keys(state.retry_attempts),
+        completed: Array.from(state.completed),
+      },
+      // Retry queue details
+      retries: Object.entries(state.retry_attempts).map(([issueId, entry]) => ({
+        issueId,
+        identifier: entry.identifier,
+        attempt: entry.attempt,
+        dueAtMs: entry.due_at_ms,
+      })),
     });
   }
 
@@ -248,14 +277,24 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
 
   private async runCycle(): Promise<{ dispatched: number; retried: number; running: number }> {
     const effectiveConfig = this.effectiveConfig!;
+    const obs = new OrchestratorObservability();
+    const cycleStartTime = Date.now();
+
     const linear = new LinearClient(
       effectiveConfig.tracker.api_key,
       effectiveConfig.tracker.endpoint
     );
 
+    // Fetch active candidates
     const candidates = await this.fetchAllActiveCandidates(linear, effectiveConfig);
     const candidateMap = new Map(candidates.map((issue) => [issue.id, issue]));
 
+    this.log.info("Symphony cycle: fetched candidates", {
+      event: "symphony.candidates_fetched",
+      candidate_count: candidates.length,
+    });
+
+    // Process retries
     const retryResult = this.controller.processRetries(
       {
         active_states: effectiveConfig.tracker.active_states,
@@ -267,6 +306,16 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
       (issueId) => candidateMap.get(issueId) || null
     );
 
+    for (const retry of retryResult.toRetry) {
+      obs.recordRetryProcessed(
+        retry.issue.id,
+        Date.now(),
+        retry.retry_attempt,
+        0 // backoff already applied internally
+      );
+    }
+
+    // Process new dispatches
     const tickResult = this.controller.processTick(candidates, {
       active_states: effectiveConfig.tracker.active_states,
       terminal_states: effectiveConfig.tracker.terminal_states,
@@ -277,6 +326,7 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
     });
 
     for (const issue of tickResult.toDispatch) {
+      obs.recordDispatchCheck(issue.id, true);
       await this.dispatchIssue(issue, null);
     }
 
@@ -284,8 +334,24 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
       await this.dispatchIssue(retry.issue, retry.retry_attempt);
     }
 
+    // Reconcile running issues
     await this.reconcileRunningIssues(linear);
     await this.persistStateOnly();
+
+    // Log cycle completion with metrics
+    const cycleDuration = Date.now() - cycleStartTime;
+    const stats = obs.getSummary();
+    const snapshot = logOrchestratorSnapshot(this.controller.getState());
+
+    this.log.info("Symphony cycle completed", {
+      event: "symphony.cycle_completed",
+      duration_ms: cycleDuration,
+      dispatched: tickResult.toDispatch.length,
+      retried: retryResult.toRetry.length,
+      running: Object.keys(this.controller.getState().running).length,
+      stats,
+      snapshot,
+    });
 
     return {
       dispatched: tickResult.toDispatch.length,
@@ -295,22 +361,41 @@ export class SymphonyOrchestratorDO extends DurableObject<Env> {
   }
 
   private async dispatchIssue(issue: Issue, attempt: number | null): Promise<void> {
+    const dispatchStartTime = Date.now();
+    const logger = new OrchestratorEventLogger({
+      issueId: issue.id,
+      attempt: attempt ?? undefined,
+    });
+
     try {
+      this.log.info("Dispatching symphony issue", {
+        ...logger.dispatchStarted({ issue_identifier: issue.identifier }),
+      });
+
       const { sessionId } = await this.createSessionForIssue(issue);
       await this.sendPromptToSession(issue, sessionId, attempt);
 
+      const dispatchDuration = Date.now() - dispatchStartTime;
       const state = this.controller.getState();
       const running = state.running[issue.id];
       if (running) {
         running.session_id = sessionId;
       }
+
+      this.log.info("Symphony issue dispatched successfully", {
+        ...logger.dispatchSuccess(sessionId, {
+          duration_ms: dispatchDuration,
+          attempt: attempt ?? 1,
+        }),
+      });
     } catch (errorValue) {
       const errorMessage = errorValue instanceof Error ? errorValue.message : String(errorValue);
+      const dispatchDuration = Date.now() - dispatchStartTime;
+
       this.log.error("Failed to dispatch symphony issue", {
-        event: "symphony.dispatch_failed",
-        issue_id: issue.id,
-        issue_identifier: issue.identifier,
-        error: errorMessage,
+        ...logger.dispatchFailed(errorMessage, {
+          duration_ms: dispatchDuration,
+        }),
       });
 
       this.controller.reportWorkerExit(

@@ -14,3 +14,7 @@ export * from "./orchestrator";
 export * from "./orchestrator-controller";
 export * from "./agent-runner-protocol";
 export * from "./agent-runner-events";
+
+// Phase 4: Observability
+export * from "./symphony-logger";
+export * from "./orchestrator-observability";
