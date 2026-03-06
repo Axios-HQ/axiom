@@ -23,8 +23,8 @@ SANDBOX_DIR = Path(__file__).parent.parent / "sandbox"
 OPENCODE_VERSION = "latest"
 
 # Cache buster - change this to force Modal image rebuild
-# v41: Install code-server for in-session browser IDE
-CACHE_BUSTER = "v41-code-server"
+# v42: Include code-server plus the latest OpenCode GPT-5.4 allowlist support
+CACHE_BUSTER = "v42-code-server-gpt-5-4"
 
 # Base image with all development tools
 base_image = (

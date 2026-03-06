@@ -628,6 +628,7 @@ export interface SpawnContext {
   sessionRepos?: SessionRepoScope[];
   model: string;
   reasoningEffort: string | null;
+  baseBranch: string | null;
   owner: {
     userId: string;
     scmLogin: string | null;

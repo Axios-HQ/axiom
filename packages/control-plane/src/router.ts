@@ -14,6 +14,7 @@ import { SessionIndexStore } from "./db/session-index";
 import { UserScmTokenStore, DEFAULT_TOKEN_LIFETIME_MS } from "./db/user-scm-tokens";
 import { IdentityLinksStore, type IdentityProvider } from "./db/identity-links";
 import { resolveGitHubUserById } from "./source-control/github-user-resolver";
+import { buildSessionInternalUrl, SessionInternalPaths } from "./session/contracts";
 
 import {
   getValidModelOrDefault,
@@ -285,7 +286,7 @@ async function verifySandboxAuth(
 
   const verifyResponse = await stub.fetch(
     internalRequest(
-      "http://internal/internal/verify-sandbox-token",
+      buildSessionInternalUrl(SessionInternalPaths.verifySandboxToken),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -903,7 +904,7 @@ async function handleCreateSession(
   // Initialize session with user info and optional encrypted token
   const initResponse = await stub.fetch(
     internalRequest(
-      "http://internal/internal/init",
+      buildSessionInternalUrl(SessionInternalPaths.init),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -972,7 +973,7 @@ async function handleGetSession(
   const stub = env.SESSION.get(doId);
 
   const response = await stub.fetch(
-    internalRequest("http://internal/internal/state", undefined, ctx)
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.state), undefined, ctx)
   );
 
   if (!response.ok) {
@@ -1029,7 +1030,7 @@ async function handleSessionPrompt(
 
   const response = await stub.fetch(
     internalRequest(
-      "http://internal/internal/prompt",
+      buildSessionInternalUrl(SessionInternalPaths.prompt),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1072,7 +1073,9 @@ async function handleSessionStop(
   const stub = getSessionStub(env, match);
   if (!stub) return error("Session ID required");
 
-  return stub.fetch(internalRequest("http://internal/internal/stop", { method: "POST" }, ctx));
+  return stub.fetch(
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.stop), { method: "POST" }, ctx)
+  );
 }
 
 async function handleSessionEvents(
@@ -1086,7 +1089,11 @@ async function handleSessionEvents(
 
   const url = new URL(request.url);
   return stub.fetch(
-    internalRequest(`http://internal/internal/events${url.search}`, undefined, ctx)
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.events, url.search),
+      undefined,
+      ctx
+    )
   );
 }
 
@@ -1099,7 +1106,9 @@ async function handleSessionArtifacts(
   const stub = getSessionStub(env, match);
   if (!stub) return error("Session ID required");
 
-  return stub.fetch(internalRequest("http://internal/internal/artifacts", undefined, ctx));
+  return stub.fetch(
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.artifacts), undefined, ctx)
+  );
 }
 
 async function handleSessionParticipants(
@@ -1111,7 +1120,9 @@ async function handleSessionParticipants(
   const stub = getSessionStub(env, match);
   if (!stub) return error("Session ID required");
 
-  return stub.fetch(internalRequest("http://internal/internal/participants", undefined, ctx));
+  return stub.fetch(
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.participants), undefined, ctx)
+  );
 }
 
 async function handleAddParticipant(
@@ -1130,7 +1141,7 @@ async function handleAddParticipant(
 
   const response = await stub.fetch(
     internalRequest(
-      "http://internal/internal/participants",
+      buildSessionInternalUrl(SessionInternalPaths.participants),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1154,7 +1165,11 @@ async function handleSessionMessages(
 
   const url = new URL(request.url);
   return stub.fetch(
-    internalRequest(`http://internal/internal/messages${url.search}`, undefined, ctx)
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.messages, url.search),
+      undefined,
+      ctx
+    )
   );
 }
 
@@ -1211,7 +1226,7 @@ async function handleCreatePR(
 
   const response = await stub.fetch(
     internalRequest(
-      "http://internal/internal/create-pr",
+      buildSessionInternalUrl(SessionInternalPaths.createPr),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1248,7 +1263,7 @@ async function handleGitPush(
 
   return stub.fetch(
     internalRequest(
-      "http://internal/internal/git-push",
+      buildSessionInternalUrl(SessionInternalPaths.gitPush),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1269,7 +1284,11 @@ async function handleOpenAITokenRefresh(
   if (!stub) return error("Session ID required");
 
   return stub.fetch(
-    internalRequest("http://internal/internal/openai-token-refresh", { method: "POST" }, ctx)
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.openaiTokenRefresh),
+      { method: "POST" },
+      ctx
+    )
   );
 }
 
@@ -1360,7 +1379,7 @@ async function handleSessionWsToken(
   const response = await ctx.metrics.time("do_fetch", () =>
     stub.fetch(
       internalRequest(
-        "http://internal/internal/ws-token",
+        buildSessionInternalUrl(SessionInternalPaths.wsToken),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1406,7 +1425,7 @@ async function handleArchiveSession(
 
   const response = await stub.fetch(
     internalRequest(
-      "http://internal/internal/archive",
+      buildSessionInternalUrl(SessionInternalPaths.archive),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1451,7 +1470,7 @@ async function handleUnarchiveSession(
 
   const response = await stub.fetch(
     internalRequest(
-      "http://internal/internal/unarchive",
+      buildSessionInternalUrl(SessionInternalPaths.unarchive),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1515,7 +1534,7 @@ async function handleSpawnChild(
   const parentStub = env.SESSION.get(parentDoId);
 
   const spawnContextRes = await parentStub.fetch(
-    internalRequest("http://internal/internal/spawn-context", undefined, ctx)
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.spawnContext), undefined, ctx)
   );
 
   if (!spawnContextRes.ok) {
@@ -1556,7 +1575,7 @@ async function handleSpawnChild(
   // Initialize child DO
   const initResponse = await childStub.fetch(
     internalRequest(
-      "http://internal/internal/init",
+      buildSessionInternalUrl(SessionInternalPaths.init),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1574,6 +1593,7 @@ async function handleSpawnChild(
           scmName: spawnContext.owner.scmName,
           scmEmail: spawnContext.owner.scmEmail,
           scmTokenEncrypted: spawnContext.owner.scmAccessTokenEncrypted,
+          branch: spawnContext.baseBranch ?? "main",
           parentSessionId: parentId,
           spawnSource: "agent",
           spawnDepth: childDepth,
@@ -1599,7 +1619,7 @@ async function handleSpawnChild(
       : undefined,
     model,
     reasoningEffort,
-    baseBranch: null,
+    baseBranch: spawnContext.baseBranch ?? "main",
     status: "created",
     parentSessionId: parentId,
     spawnSource: "agent",
@@ -1613,7 +1633,7 @@ async function handleSpawnChild(
   try {
     promptResponse = await childStub.fetch(
       internalRequest(
-        "http://internal/internal/prompt",
+        buildSessionInternalUrl(SessionInternalPaths.prompt),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1657,7 +1677,7 @@ async function handleSpawnChild(
     parentStub
       .fetch(
         internalRequest(
-          "http://internal/internal/child-session-update",
+          buildSessionInternalUrl(SessionInternalPaths.childSessionUpdate),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1714,7 +1734,7 @@ async function handleGetChild(
   const childStub = env.SESSION.get(childDoId);
 
   const response = await childStub.fetch(
-    internalRequest("http://internal/internal/child-summary", undefined, ctx)
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.childSummary), undefined, ctx)
   );
 
   return response;
@@ -1731,7 +1751,7 @@ async function handleAgentUpdate(
 
   return stub.fetch(
     internalRequest(
-      "http://internal/internal/agent-update",
+      buildSessionInternalUrl(SessionInternalPaths.agentUpdate),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1758,7 +1778,7 @@ async function handlePublishPreviewUrl(
 
   return stub.fetch(
     internalRequest(
-      "http://internal/internal/preview-url",
+      buildSessionInternalUrl(SessionInternalPaths.previewUrl),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1790,7 +1810,7 @@ async function handleCodeServerReady(
 
   return stub.fetch(
     internalRequest(
-      "http://internal/internal/code-server-ready",
+      buildSessionInternalUrl(SessionInternalPaths.codeServerReady),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1822,7 +1842,7 @@ async function handleCancelChild(
   const childStub = env.SESSION.get(childDoId);
 
   const response = await childStub.fetch(
-    internalRequest("http://internal/internal/cancel", { method: "POST" }, ctx)
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.cancel), { method: "POST" }, ctx)
   );
 
   // Update D1 status if cancel succeeded

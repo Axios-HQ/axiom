@@ -411,6 +411,7 @@ class SandboxManager:
             model = session_config.get("model", "claude-sonnet-4-6")
             session_id = session_config.get("session_id", "")
             session_repos = session_config.get("session_repos")
+            branch = session_config.get("branch")
         else:
             repo_owner = session_config.repo_owner
             repo_name = session_config.repo_name
@@ -418,6 +419,7 @@ class SandboxManager:
             model = session_config.model
             session_id = session_config.session_id
             session_repos = session_config.session_repos
+            branch = session_config.branch
 
         # Use provided sandbox_id or generate one
         if not sandbox_id:
@@ -449,6 +451,7 @@ class SandboxManager:
                         "session_repos": session_repos,
                         "provider": provider,
                         "model": model,
+                        **({"branch": branch} if branch else {}),
                     }
                 ),
             }
