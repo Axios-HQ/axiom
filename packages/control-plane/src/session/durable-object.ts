@@ -60,7 +60,9 @@ import type { SpawnContext, SessionRepoScope } from "@open-inspect/shared";
 import type { SessionRow, ArtifactRow, SandboxRow, SessionRepoRow } from "./types";
 import { SessionRepository } from "./repository";
 import { SessionWebSocketManagerImpl, type SessionWebSocketManager } from "./websocket-manager";
-import { SessionPullRequestService } from "./pull-request-service";
+import { SessionPullRequestService, type PrPolicy } from "./pull-request-service";
+import { IntegrationSettingsStore } from "../db/integration-settings";
+import type { GitHubBotSettings } from "@open-inspect/shared";
 import { RepoSecretsStore } from "../db/repo-secrets";
 import { GlobalSecretsStore } from "../db/global-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
@@ -1185,9 +1187,10 @@ export class SessionDO extends DurableObject<Env> {
    */
   private async pushBranchToRemote(
     branchName: string,
-    pushSpec: GitPushSpec
+    pushSpec: GitPushSpec,
+    baseBranch?: string
   ): Promise<{ success: true } | { success: false; error: string }> {
-    return await this.sandboxEventProcessor.pushBranchToRemote(branchName, pushSpec);
+    return await this.sandboxEventProcessor.pushBranchToRemote(branchName, pushSpec, baseBranch);
   }
 
   /**
@@ -1859,6 +1862,23 @@ export class SessionDO extends DurableObject<Env> {
       createdAt: now,
     });
 
+    // Persist screenshot as a first-class session artifact when present.
+    // This makes screenshots available for PR evidence and policy enforcement.
+    if (screenshotUrl) {
+      const screenshotArtifactId = generateId();
+      this.repository.createArtifact({
+        id: screenshotArtifactId,
+        type: "screenshot",
+        url: screenshotUrl,
+        metadata: JSON.stringify({ message: (message as string).slice(0, 500), capturedAt: now }),
+        createdAt: now,
+      });
+      this.log.info("agent_update.screenshot_artifact_created", {
+        artifact_id: screenshotArtifactId,
+        url: screenshotUrl,
+      });
+    }
+
     // Broadcast to WebSocket clients
     this.broadcast({ type: "sandbox_event", event });
 
@@ -2141,18 +2161,45 @@ export class SessionDO extends DurableObject<Env> {
     const webAppUrl = this.env.WEB_APP_URL || this.env.WORKER_URL || "";
     const sessionUrl = webAppUrl + "/session/" + sessionId;
 
+    // Resolve PR policy from integration settings (GitHub bot repo config).
+    let prPolicy: PrPolicy | null = null;
+    if (this.env.DB) {
+      try {
+        const settingsStore = new IntegrationSettingsStore(this.env.DB);
+        const repo = `${session.repo_owner}/${session.repo_name}`;
+        const resolved = await settingsStore.getResolvedConfig("github", repo);
+        const githubSettings = resolved.settings as GitHubBotSettings;
+        if (
+          githubSettings.prTitleRegex ||
+          githubSettings.requireScreenshotForUiChanges !== undefined
+        ) {
+          prPolicy = {
+            prTitleRegex: githubSettings.prTitleRegex ?? null,
+            prTitleExample: githubSettings.prTitleExample ?? null,
+            requireScreenshotForUiChanges: githubSettings.requireScreenshotForUiChanges ?? false,
+          };
+        }
+      } catch (err) {
+        this.log.warn("pr.policy_fetch_failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const pullRequestService = new SessionPullRequestService({
       repository: this.repository,
       sourceControlProvider: this.sourceControlProvider,
       log: this.log,
       generateId: () => generateId(),
-      pushBranchToRemote: (headBranch, pushSpec) => this.pushBranchToRemote(headBranch, pushSpec),
+      pushBranchToRemote: (headBranch, pushSpec, baseBranch) =>
+        this.pushBranchToRemote(headBranch, pushSpec, baseBranch),
       broadcastArtifactCreated: (artifact) => {
         this.broadcast({
           type: "artifact_created",
           artifact,
         });
       },
+      prPolicy,
     });
 
     const result = await pullRequestService.createPullRequest({
@@ -2216,7 +2263,7 @@ export class SessionDO extends DurableObject<Env> {
       force: true,
     });
 
-    const pushResult = await this.pushBranchToRemote(headBranch, pushSpec);
+    const pushResult = await this.pushBranchToRemote(headBranch, pushSpec, session.base_branch);
     if (!pushResult.success) {
       this.log.warn("git_push.failed", { branch: headBranch, error: pushResult.error });
       return Response.json({ error: pushResult.error }, { status: 500 });

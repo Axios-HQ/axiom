@@ -325,7 +325,8 @@ export class SessionSandboxEventProcessor {
 
   async pushBranchToRemote(
     branchName: string,
-    pushSpec: GitPushSpec
+    pushSpec: GitPushSpec,
+    baseBranch?: string
   ): Promise<{ success: true } | { success: false; error: string }> {
     const sandboxWs = this.deps.wsManager.getSandboxSocket();
 
@@ -348,10 +349,14 @@ export class SessionSandboxEventProcessor {
       }, 180000);
     });
 
-    this.deps.log.info("Sending push command", { branch_name: branchName });
+    this.deps.log.info("Sending push command", {
+      branch_name: branchName,
+      base_branch: baseBranch,
+    });
     this.deps.wsManager.send(sandboxWs, {
       type: "push",
       pushSpec,
+      ...(baseBranch ? { baseBranch } : {}),
     });
 
     try {
