@@ -28,6 +28,7 @@ export interface CallbackServiceEnv {
   SLACK_BOT?: Fetcher;
   LINEAR_BOT?: Fetcher;
   SCHEDULER_CALLBACK?: Fetcher;
+  SYMPHONY_CALLBACK?: Fetcher;
 }
 
 /**
@@ -81,6 +82,8 @@ export class CallbackNotificationService {
    */
   private getBinding(source: string | null): Fetcher | undefined {
     switch (source) {
+      case "symphony":
+        return this.env.SYMPHONY_CALLBACK;
       case "automation":
         return this.env.SCHEDULER_CALLBACK;
       case "linear":
@@ -112,6 +115,10 @@ export class CallbackNotificationService {
     // Route automation callbacks to SchedulerDO (different URL + payload)
     if (context.source === "automation") {
       return this.notifyAutomationComplete(context, success, error);
+    }
+
+    if (context.source === "symphony") {
+      return this.notifySymphonyComplete(context, success, error);
     }
 
     if (!this.env.INTERNAL_CALLBACK_SECRET) {
@@ -248,6 +255,65 @@ export class CallbackNotificationService {
     this.log.error("Failed to notify scheduler after retries", {
       automation_id: context.automationId,
       run_id: context.runId,
+    });
+  }
+
+  private async notifySymphonyComplete(
+    context: { issueId: string; issueIdentifier: string },
+    success: boolean,
+    error?: string
+  ): Promise<void> {
+    const binding = this.env.SYMPHONY_CALLBACK;
+    if (!binding) {
+      this.log.warn("No SYMPHONY_CALLBACK binding, skipping symphony notification");
+      return;
+    }
+
+    const payload = {
+      issueId: context.issueId,
+      issueIdentifier: context.issueIdentifier,
+      sessionId: this.getSessionId(),
+      success,
+      error,
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await binding.fetch("https://internal/internal/symphony/run-complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (response.ok) {
+          this.log.info("Symphony callback succeeded", {
+            issue_id: context.issueId,
+            issue_identifier: context.issueIdentifier,
+          });
+          return;
+        }
+        const text = await response.text().catch(() => "");
+        this.log.error("Symphony callback failed", {
+          issue_id: context.issueId,
+          issue_identifier: context.issueIdentifier,
+          status: response.status,
+          response_text: text.slice(0, 500),
+        });
+      } catch (e) {
+        this.log.error("Symphony callback attempt failed", {
+          issue_id: context.issueId,
+          issue_identifier: context.issueIdentifier,
+          attempt: attempt + 1,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    this.log.error("Failed to notify symphony orchestrator after retries", {
+      issue_id: context.issueId,
+      issue_identifier: context.issueIdentifier,
     });
   }
 

@@ -275,12 +275,16 @@ export class SessionDO extends DurableObject<Env> {
       const schedulerCallback = this.env.SCHEDULER
         ? new DOFetcherAdapter(this.env.SCHEDULER, "global-scheduler")
         : undefined;
+      const symphonyCallback = this.env.SYMPHONY
+        ? new DOFetcherAdapter(this.env.SYMPHONY, "global-symphony-orchestrator")
+        : undefined;
 
       this._callbackService = new CallbackNotificationService({
         repository: this.repository,
         env: {
           ...this.env,
           SCHEDULER_CALLBACK: schedulerCallback,
+          SYMPHONY_CALLBACK: symphonyCallback,
         },
         log: this.log,
         getSessionId: () => {

@@ -112,6 +112,14 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
   return env.SESSION.get(doId);
 }
 
+function getSymphonyStub(env: Env): DurableObjectStub | null {
+  if (!env.SYMPHONY) {
+    return null;
+  }
+  const doId = env.SYMPHONY.idFromName("global-symphony-orchestrator");
+  return env.SYMPHONY.get(doId);
+}
+
 /**
  * Routes that do not require authentication.
  */
@@ -478,6 +486,23 @@ const routes: Route[] = [
 
   // Repository management
   ...reposRoutes,
+
+  // Symphony orchestration
+  {
+    method: "POST",
+    pattern: parsePattern("/symphony/configure"),
+    handler: handleSymphonyConfigure,
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/symphony/tick"),
+    handler: handleSymphonyTick,
+  },
+  {
+    method: "GET",
+    pattern: parsePattern("/symphony/state"),
+    handler: handleSymphonyState,
+  },
 
   // Secrets
   ...secretsRoutes,
@@ -1831,4 +1856,50 @@ async function handleCancelChild(
   }
 
   return response;
+}
+
+async function handleSymphonyConfigure(
+  request: Request,
+  env: Env,
+  _match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSymphonyStub(env);
+  if (!stub) return error("Symphony orchestrator is not configured", 503);
+
+  return stub.fetch(
+    internalRequest(
+      "http://internal/internal/configure",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
+}
+
+async function handleSymphonyTick(
+  _request: Request,
+  env: Env,
+  _match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSymphonyStub(env);
+  if (!stub) return error("Symphony orchestrator is not configured", 503);
+
+  return stub.fetch(internalRequest("http://internal/internal/tick", { method: "POST" }, ctx));
+}
+
+async function handleSymphonyState(
+  _request: Request,
+  env: Env,
+  _match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSymphonyStub(env);
+  if (!stub) return error("Symphony orchestrator is not configured", 503);
+
+  return stub.fetch(internalRequest("http://internal/internal/state", undefined, ctx));
 }

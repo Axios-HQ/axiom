@@ -13,6 +13,7 @@ const logger = createLogger("worker");
 // Re-export Durable Objects for Cloudflare to discover
 export { SessionDO } from "./session/durable-object";
 export { SchedulerDO } from "./scheduler/durable-object";
+export { SymphonyOrchestratorDO } from "./symphony/durable-object";
 
 /**
  * Worker fetch handler.
@@ -35,17 +36,24 @@ export default {
    * Cron trigger handler — wakes the SchedulerDO to process overdue automations.
    */
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
-    if (!env.SCHEDULER) {
+    if (env.SCHEDULER) {
+      // Always wake the SchedulerDO — it runs both the recovery sweep
+      // (orphaned/timed-out runs) and processes overdue automations.
+      const doId = env.SCHEDULER.idFromName("global-scheduler");
+      const stub = env.SCHEDULER.get(doId);
+      await stub.fetch("http://internal/internal/tick", { method: "POST" });
+    } else {
       logger.debug("SCHEDULER binding not configured, skipping scheduled tick");
+    }
+
+    if (!env.SYMPHONY) {
+      logger.debug("SYMPHONY binding not configured, skipping symphony tick");
       return;
     }
 
-    // Always wake the SchedulerDO — it runs both the recovery sweep
-    // (orphaned/timed-out runs) and processes overdue automations.
-    const doId = env.SCHEDULER.idFromName("global-scheduler");
-    const stub = env.SCHEDULER.get(doId);
-
-    await stub.fetch("http://internal/internal/tick", { method: "POST" });
+    const symphonyId = env.SYMPHONY.idFromName("global-symphony-orchestrator");
+    const symphonyStub = env.SYMPHONY.get(symphonyId);
+    await symphonyStub.fetch("http://internal/internal/tick", { method: "POST" });
   },
 };
 

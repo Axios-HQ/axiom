@@ -7,3 +7,14 @@ export * from "./git";
 export * from "./auth";
 export * from "./models";
 export * from "./cron";
+export * from "./workflow-loader";
+export * from "./linear-client";
+export * from "./prompt-renderer";
+export * from "./orchestrator";
+export * from "./orchestrator-controller";
+export * from "./agent-runner-protocol";
+export * from "./agent-runner-events";
+
+// Phase 4: Observability
+export * from "./symphony-logger";
+export * from "./orchestrator-observability";
