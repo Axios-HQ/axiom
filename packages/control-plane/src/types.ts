@@ -48,6 +48,7 @@ export interface Env {
 
   // Durable Objects (optional)
   SCHEDULER?: DurableObjectNamespace; // SchedulerDO for automation engine
+  SYMPHONY?: DurableObjectNamespace; // SymphonyOrchestratorDO for issue orchestration
 
   // D1 database
   DB: D1Database;

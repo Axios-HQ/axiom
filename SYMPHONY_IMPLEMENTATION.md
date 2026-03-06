@@ -159,18 +159,18 @@ Every function includes section references:
 
 ## Spec Compliance Matrix
 
-| Section | Topic                   | Status | Notes                                           |
-| ------- | ----------------------- | ------ | ----------------------------------------------- |
-| 4       | Domain Model            | ✅     | All types defined                               |
-| 5       | Workflow File           | ✅     | YAML parsing, validation, loading               |
-| 6       | Configuration           | ✅     | Typed getters, defaults, $VAR resolution        |
-| 7       | State Machine           | ✅     | Issue states, running/claimed/retrying          |
-| 8       | Polling & Dispatch      | ✅     | Candidate selection, sorting, retries           |
-| 9       | Workspace Management    | ✅     | Creation, hooks, safety invariants              |
-| 10      | Agent Runner Protocol   | 🔄     | Subprotocol (control-plane integration needed)  |
-| 11      | Linear Integration      | ✅     | GraphQL client, normalization                   |
-| 12      | Prompt Rendering        | ✅     | Template engine, variable substitution          |
-| 13      | Logging & Observability | 🔄     | Types defined (implementation in control-plane) |
+| Section | Topic                   | Status | Notes                                            |
+| ------- | ----------------------- | ------ | ------------------------------------------------ |
+| 4       | Domain Model            | ✅     | All types defined                                |
+| 5       | Workflow File           | ✅     | YAML parsing, validation, loading                |
+| 6       | Configuration           | ✅     | Typed getters, defaults, $VAR resolution         |
+| 7       | State Machine           | ✅     | Issue states, running/claimed/retrying           |
+| 8       | Polling & Dispatch      | ✅     | Candidate selection, sorting, retries            |
+| 9       | Workspace Management    | ✅     | Creation, hooks, safety invariants               |
+| 10      | Agent Runner Protocol   | ✅     | Subprocess client, handshake, stream/token tools |
+| 11      | Linear Integration      | ✅     | GraphQL client, normalization                    |
+| 12      | Prompt Rendering        | ✅     | Template engine, variable substitution           |
+| 13      | Logging & Observability | 🔄     | Types defined (implementation in control-plane)  |
 
 **Legend:**
 
@@ -346,11 +346,10 @@ Tests cover:
 
 To complete Symphony integration in Open-Inspect:
 
-1. **Control-Plane Integration** (Section 10)
-   - Agent runner protocol client
-   - JSON-RPC app-server communication
-   - Event streaming & token accounting
-   - Session lifecycle management
+1. **Runtime Wiring**
+   - Connect agent runner client to the chosen execution runtime
+   - Feed normalized runner notifications into orchestrator event/state updates
+   - Persist runner lifecycle metadata where needed for operations
 
 2. **Observability** (Section 13)
    - Structured logging with context

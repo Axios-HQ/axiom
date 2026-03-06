@@ -12,3 +12,5 @@ export * from "./linear-client";
 export * from "./prompt-renderer";
 export * from "./orchestrator";
 export * from "./orchestrator-controller";
+export * from "./agent-runner-protocol";
+export * from "./agent-runner-events";

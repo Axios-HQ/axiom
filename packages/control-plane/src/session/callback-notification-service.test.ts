@@ -539,4 +539,59 @@ describe("CallbackNotificationService", () => {
       expect(slackFetch).not.toHaveBeenCalled();
     });
   });
+
+  describe("notifyComplete — symphony callback", () => {
+    it("routes symphony callbacks to SYMPHONY_CALLBACK binding", async () => {
+      const symphonyFetcher = createMockFetcher();
+      const h = createTestHarness({
+        env: { SYMPHONY_CALLBACK: symphonyFetcher },
+      });
+
+      vi.mocked(h.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({
+          source: "symphony",
+          issueId: "issue-1",
+          issueIdentifier: "PROJ-1",
+        }),
+        source: "symphony",
+      });
+
+      const fetchMock = vi.mocked(
+        (symphonyFetcher as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      );
+      fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await h.service.notifyComplete("msg-1", true);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://internal/internal/symphony/run-complete",
+        expect.objectContaining({ method: "POST" })
+      );
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        issueId: "issue-1",
+        issueIdentifier: "PROJ-1",
+        sessionId: "session-123",
+        success: true,
+      });
+    });
+
+    it("skips when no SYMPHONY_CALLBACK binding", async () => {
+      const h = createTestHarness({ env: { SYMPHONY_CALLBACK: undefined } });
+      vi.mocked(h.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({
+          source: "symphony",
+          issueId: "issue-1",
+          issueIdentifier: "PROJ-1",
+        }),
+        source: "symphony",
+      });
+
+      await h.service.notifyComplete("msg-1", true);
+
+      expect(h.log.warn).toHaveBeenCalledWith(
+        "No SYMPHONY_CALLBACK binding, skipping symphony notification"
+      );
+    });
+  });
 });

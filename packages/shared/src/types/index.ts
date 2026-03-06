@@ -24,7 +24,14 @@ export type SandboxStatus =
   | "failed";
 export type GitSyncStatus = "pending" | "in_progress" | "completed" | "failed";
 export type MessageStatus = "pending" | "processing" | "completed" | "failed";
-export type MessageSource = "web" | "slack" | "linear" | "extension" | "github" | "automation";
+export type MessageSource =
+  | "web"
+  | "slack"
+  | "linear"
+  | "extension"
+  | "github"
+  | "automation"
+  | "symphony";
 export type ArtifactType = "pr" | "screenshot" | "preview" | "branch";
 export type EventType =
   | "heartbeat"
@@ -483,10 +490,17 @@ export interface AutomationCallbackContext {
   automationName: string;
 }
 
+export interface SymphonyCallbackContext {
+  source: "symphony";
+  issueId: string;
+  issueIdentifier: string;
+}
+
 export type CallbackContext =
   | SlackCallbackContext
   | LinearCallbackContext
-  | AutomationCallbackContext;
+  | AutomationCallbackContext
+  | SymphonyCallbackContext;
 
 // API response types
 export interface CreateSessionRequest {
