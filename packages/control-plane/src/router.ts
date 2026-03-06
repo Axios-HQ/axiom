@@ -1091,7 +1091,7 @@ async function handleSessionEvents(
 }
 
 async function handleSessionArtifacts(
-  _request: Request,
+  request: Request,
   env: Env,
   match: RegExpMatchArray,
   ctx: RequestContext
@@ -1099,7 +1099,10 @@ async function handleSessionArtifacts(
   const stub = getSessionStub(env, match);
   if (!stub) return error("Session ID required");
 
-  return stub.fetch(internalRequest("http://internal/internal/artifacts", undefined, ctx));
+  const url = new URL(request.url);
+  return stub.fetch(
+    internalRequest(`http://internal/internal/artifacts${url.search}`, undefined, ctx)
+  );
 }
 
 async function handleSessionParticipants(

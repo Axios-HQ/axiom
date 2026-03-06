@@ -10,9 +10,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
+  const userId = session.user.id || session.user.email || "anonymous";
+  const encodedSessionId = encodeURIComponent(id);
+  const encodedUserId = encodeURIComponent(userId);
 
   try {
-    const response = await controlPlaneFetch(`/sessions/${id}/artifacts`);
+    const response = await controlPlaneFetch(
+      `/sessions/${encodedSessionId}/artifacts?userId=${encodedUserId}`
+    );
     const data = await response.json();
 
     if (!response.ok) {
