@@ -167,7 +167,11 @@ export class SessionDO extends DurableObject<Env> {
       handler: (req) => this.handleAddParticipant(req),
     },
     { method: "GET", path: "/internal/events", handler: (_, url) => this.handleListEvents(url) },
-    { method: "GET", path: "/internal/artifacts", handler: () => this.handleListArtifacts() },
+    {
+      method: "GET",
+      path: "/internal/artifacts",
+      handler: (_, url) => this.handleListArtifacts(url),
+    },
     {
       method: "GET",
       path: "/internal/messages",
@@ -2028,7 +2032,20 @@ export class SessionDO extends DurableObject<Env> {
     });
   }
 
-  private handleListArtifacts(): Response {
+  private handleListArtifacts(url: URL): Response {
+    const userId = url.searchParams.get("userId")?.trim();
+    if (!userId) {
+      return Response.json({ error: "userId is required" }, { status: 400 });
+    }
+
+    const participant = this.participantService.getByUserId(userId);
+    if (!participant) {
+      return Response.json(
+        { error: "Not authorized to list artifacts for this session" },
+        { status: 403 }
+      );
+    }
+
     const artifacts = this.repository.listArtifacts();
 
     return Response.json({

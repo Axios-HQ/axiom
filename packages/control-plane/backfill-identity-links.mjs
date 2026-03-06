@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import process from "node:process";
 
 function parseArgs(argv) {
   const args = {
@@ -64,7 +65,7 @@ async function main() {
     throw new Error("INTERNAL_CALLBACK_SECRET is required");
   }
 
-  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/identity-links/sync`, {
+  const response = await globalThis.fetch(`${baseUrl.replace(/\/$/, "")}/identity-links/sync`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

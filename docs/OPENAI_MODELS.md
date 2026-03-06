@@ -11,6 +11,7 @@ how to configure your deployment to use them.
 
 | Model         | Description                    |
 | ------------- | ------------------------------ |
+| GPT 5.4       | Latest general model           |
 | GPT 5.2       | Fast baseline model (400K ctx) |
 | GPT 5.2 Codex | Optimized for code tasks       |
 | GPT 5.3 Codex | Latest codex variant           |
