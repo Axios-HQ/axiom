@@ -1,0 +1,11 @@
+{
+  "name": "@open-inspect/sandbox-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebSocket bridge from sandbox container to control plane SessionAgent",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
