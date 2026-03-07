@@ -458,8 +458,8 @@ describe("CloudflareSandboxProvider", () => {
   it("implements SandboxProvider interface", () => {
     const provider = new CloudflareSandboxProvider(mockSandboxBinding());
     expect(provider.name).toBe("cloudflare");
-    expect(provider.capabilities.supportsSnapshots).toBe(false); // initial impl
-    expect(provider.capabilities.supportsRestore).toBe(false);
+    expect(provider.capabilities.supportsSnapshots).toBe(true); // squashfs + R2
+    expect(provider.capabilities.supportsRestore).toBe(true); // FUSE overlay from R2
     expect(provider.capabilities.supportsWarm).toBe(false);
   });
 
@@ -480,6 +480,42 @@ describe("CloudflareSandboxProvider", () => {
     expect(binding.create).toHaveBeenCalled();
   });
 
+  it("takes a snapshot via createBackup (squashfs → R2)", async () => {
+    const binding = mockSandboxBinding();
+    const provider = new CloudflareSandboxProvider(binding);
+    const result = await provider.takeSnapshot({
+      providerObjectId: "cf-container-id",
+      sessionId: "test-session",
+      reason: "inactivity_timeout",
+    });
+    expect(result.success).toBe(true);
+    expect(result.imageId).toBeDefined(); // serialized DirectoryBackup handle
+    expect(binding.get("cf-container-id").createBackup).toHaveBeenCalledWith({
+      dir: "/home/user/repo",
+      name: "test-session-inactivity_timeout",
+      ttl: 259200,
+    });
+  });
+
+  it("restores from snapshot via restoreBackup (FUSE overlay)", async () => {
+    const binding = mockSandboxBinding();
+    const provider = new CloudflareSandboxProvider(binding);
+    const backupHandle = JSON.stringify({ id: "backup-1", createdAt: Date.now(), ttl: 259200 });
+    const result = await provider.restoreFromSnapshot({
+      snapshotImageId: backupHandle,
+      sessionId: "test-session",
+      sandboxId: "test-sandbox",
+      sandboxAuthToken: "token",
+      controlPlaneUrl: "https://cp.example.com",
+      repoOwner: "test",
+      repoName: "repo",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+    expect(result.success).toBe(true);
+    expect(binding.get).toHaveBeenCalled();
+  });
+
   it("terminates a sandbox", async () => {
     const binding = mockSandboxBinding();
     const provider = new CloudflareSandboxProvider(binding);
@@ -489,10 +525,15 @@ describe("CloudflareSandboxProvider", () => {
 });
 
 function mockSandboxBinding() {
+  const mockInstance = {
+    status: "running",
+    createBackup: vi.fn().mockResolvedValue({ id: "backup-1", createdAt: Date.now(), ttl: 259200 }),
+    restoreBackup: vi.fn().mockResolvedValue(undefined),
+  };
   return {
     create: vi.fn().mockResolvedValue({ id: "cf-container-id" }),
     destroy: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ status: "running" }),
+    get: vi.fn().mockReturnValue(mockInstance),
   };
 }
 ```
@@ -520,8 +561,8 @@ import {
 export class CloudflareSandboxProvider implements SandboxProvider {
   readonly name = "cloudflare";
   readonly capabilities: SandboxProviderCapabilities = {
-    supportsSnapshots: false,
-    supportsRestore: false,
+    supportsSnapshots: true, // squashfs → R2 via createBackup()
+    supportsRestore: true, // FUSE overlay via restoreBackup()
     supportsWarm: false,
   };
 
@@ -553,12 +594,90 @@ export class CloudflareSandboxProvider implements SandboxProvider {
       throw SandboxProviderError.fromFetchError("Failed to create CF sandbox", error);
     }
   }
+
+  /**
+   * Snapshot via CF Sandbox SDK createBackup().
+   *
+   * Uses squashfs compression, uploads to R2 via presigned URLs.
+   * Returns a serializable DirectoryBackup handle stored in DO SQLite
+   * (maps to snapshot_image_id in SandboxRow).
+   *
+   * R2 storage: backups/{backupId}/data.sqsh + meta.json
+   * TTL default: 3 days (259200s). Checked at restore time, not creation.
+   */
+  async takeSnapshot(config: SnapshotConfig): Promise<SnapshotResult> {
+    try {
+      const sandbox = this.sandboxBinding.get(config.providerObjectId);
+      const backup = await sandbox.createBackup({
+        dir: "/home/user/repo",
+        name: `${config.sessionId}-${config.reason}`,
+        ttl: 259200, // 3 days
+      });
+      return {
+        success: true,
+        imageId: JSON.stringify(backup), // serialized handle for restoreBackup()
+      };
+    } catch (error) {
+      throw SandboxProviderError.fromFetchError("Failed to create backup", error);
+    }
+  }
+
+  /**
+   * Restore via CF Sandbox SDK restoreBackup().
+   *
+   * Mounts squashfs as read-only FUSE lower layer with copy-on-write upper.
+   * New writes go to upper layer, preserving original snapshot.
+   * Re-restoring same backup discards accumulated changes.
+   */
+  async restoreFromSnapshot(config: RestoreConfig): Promise<RestoreResult> {
+    try {
+      // Create fresh container first
+      const createResult = await this.createSandbox({
+        sessionId: config.sessionId,
+        sandboxId: config.sandboxId,
+        repoOwner: config.repoOwner,
+        repoName: config.repoName,
+        controlPlaneUrl: config.controlPlaneUrl,
+        sandboxAuthToken: config.sandboxAuthToken,
+        provider: config.provider,
+        model: config.model,
+        userEnvVars: config.userEnvVars,
+        timeoutSeconds: config.timeoutSeconds,
+        branch: config.branch,
+      });
+      // Restore backup onto the new container
+      const sandbox = this.sandboxBinding.get(createResult.providerObjectId!);
+      const backupHandle = JSON.parse(config.snapshotImageId);
+      await sandbox.restoreBackup(backupHandle);
+      return {
+        success: true,
+        sandboxId: config.sandboxId,
+        providerObjectId: createResult.providerObjectId,
+      };
+    } catch (error) {
+      throw SandboxProviderError.fromFetchError("Failed to restore from backup", error);
+    }
+  }
 }
 
 interface CloudflareSandboxBinding {
   create(config: { image: string; env: Record<string, string> }): Promise<{ id: string }>;
   destroy(id: string): Promise<void>;
-  get(id: string): Promise<{ status: string }>;
+  get(id: string): CloudflareSandboxInstance;
+}
+
+interface CloudflareSandboxInstance {
+  status: string;
+  createBackup(config: { dir: string; name?: string; ttl?: number }): Promise<DirectoryBackup>;
+  restoreBackup(backup: DirectoryBackup): Promise<void>;
+}
+
+/** Serializable backup handle — stored in DO SQLite as snapshot_image_id */
+interface DirectoryBackup {
+  id: string;
+  name?: string;
+  createdAt: number;
+  ttl: number;
 }
 ```
 
@@ -808,10 +927,20 @@ git commit -m "feat(control-plane): migrate SessionDO to SessionAgent (Cloudflar
 - Modify: `terraform/environments/production/workers-control-plane.tf`
 - Modify: `terraform/environments/production/variables.tf`
 
-Add `SANDBOX_PROVIDER` env var and CF Sandbox binding configuration.
+Add `SANDBOX_PROVIDER` env var, CF Sandbox binding, and R2 backup bucket.
+
+The R2 bucket for sandbox backups reuses the same R2 infra pattern from Axiom's media bucket. CF
+Sandbox SDK needs:
+
+- `BACKUP_BUCKET` R2 binding in wrangler config
+- `BACKUP_BUCKET_NAME` env var
+- `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` secrets
+- API token with Object Read & Write permissions
+
+Backups stored as: `backups/{backupId}/data.sqsh` + `backups/{backupId}/meta.json`
 
 ```bash
-git commit -m "feat(terraform): add sandbox provider selection and CF Sandbox bindings"
+git commit -m "feat(terraform): add sandbox provider selection, CF Sandbox bindings, and R2 backup bucket"
 ```
 
 ---
