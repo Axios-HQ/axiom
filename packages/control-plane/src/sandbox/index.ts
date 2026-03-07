@@ -31,6 +31,22 @@ export {
 // Modal provider
 export { ModalSandboxProvider, createModalProvider } from "./providers/modal-provider";
 
+// Cloudflare provider
+export {
+  CloudflareSandboxProvider,
+  createCloudflareProvider,
+  type CloudflareSandboxBinding,
+  type CloudflareSandboxInstance,
+  type DirectoryBackup,
+} from "./providers/cloudflare-provider";
+
+// Provider factory
+export {
+  createSandboxProvider,
+  type SandboxProviderName,
+  type SandboxProviderBindings,
+} from "./providers/factory";
+
 // Lifecycle decisions
 export {
   evaluateCircuitBreaker,
