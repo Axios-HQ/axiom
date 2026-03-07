@@ -1,14 +1,12 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { getToken } from "next-auth/jwt";
-import { authOptions } from "@/lib/auth";
+import { getSession, getGitHubAccessToken } from "@/lib/auth-server";
 import { controlPlaneFetch } from "@/lib/control-plane";
 
 export async function GET(request: NextRequest) {
   const routeStart = Date.now();
 
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   const authMs = Date.now() - routeStart;
 
   if (!session) {
@@ -38,7 +36,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -46,11 +44,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const jwt = await getToken({ req: request });
-    const accessToken = jwt?.accessToken as string | undefined;
+    const accessToken = await getGitHubAccessToken(request.headers);
 
-    // Explicitly pick allowed fields from client body and derive identity
-    // from the server-side NextAuth session (not client-supplied data)
+    // Derive identity from server-side session (not client-supplied data)
     const user = session.user;
     const userId = user.id || user.email || "anonymous";
 
@@ -63,7 +59,6 @@ export async function POST(request: NextRequest) {
       title: body.title,
       scmToken: accessToken,
       userId,
-      scmLogin: user.login,
       scmName: user.name,
       scmEmail: user.email,
     };

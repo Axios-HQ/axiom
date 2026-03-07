@@ -1,6 +1,5 @@
 "use client";
 
-import { SessionProvider } from "next-auth/react";
 import { SWRConfig } from "swr";
 
 async function swrFetcher<T>(url: string): Promise<T> {
@@ -12,7 +11,7 @@ async function swrFetcher<T>(url: string): Promise<T> {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SWRConfig value={{ fetcher: swrFetcher, revalidateOnFocus: true, dedupingInterval: 2000 }}>
-      <SessionProvider>{children}</SessionProvider>
+      {children}
     </SWRConfig>
   );
 }

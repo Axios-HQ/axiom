@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import type {
   Automation,
   ListAutomationsResponse,
