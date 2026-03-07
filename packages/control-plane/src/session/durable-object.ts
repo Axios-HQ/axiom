@@ -1903,6 +1903,7 @@ export class SessionDO extends DurableObject<Env> {
   /**
    * Handle archive session request.
    * Only session participants are authorized to archive.
+   * Takes a snapshot (if supported) and terminates the sandbox to prevent zombie containers.
    */
   private async handleArchive(request: Request): Promise<Response> {
     const session = this.getSession();
@@ -1925,6 +1926,26 @@ export class SessionDO extends DurableObject<Env> {
     const participant = this.participantService.getByUserId(body.userId);
     if (!participant) {
       return Response.json({ error: "Not authorized to archive this session" }, { status: 403 });
+    }
+
+    // Take snapshot and terminate sandbox before archiving
+    const sandbox = this.getSandbox();
+    if (sandbox && sandbox.status !== "stopped" && sandbox.status !== "failed") {
+      // Snapshot first (best-effort — don't block archive on failure)
+      try {
+        await this.triggerSnapshot("archive");
+      } catch (e) {
+        this.log.error("Snapshot before archive failed", {
+          error: e instanceof Error ? e : String(e),
+        });
+      }
+
+      // Send shutdown to sandbox and close WebSocket
+      const sandboxWs = this.wsManager.getSandboxSocket();
+      if (sandboxWs) {
+        this.wsManager.send(sandboxWs, { type: "shutdown" });
+      }
+      this.updateSandboxStatus("stopped");
     }
 
     await this.transitionSessionStatus("archived");
