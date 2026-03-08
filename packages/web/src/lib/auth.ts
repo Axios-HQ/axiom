@@ -58,9 +58,6 @@ export const auth = betterAuth({
       maxAge: 5 * 60, // 5 minutes
     },
   },
-  pages: {
-    error: "/access-denied",
-  },
 });
 
 export type Session = typeof auth.$Infer.Session;

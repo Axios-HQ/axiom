@@ -36,7 +36,9 @@ export async function getGitHubAccessToken(requestHeaders?: Headers): Promise<st
       (account: { providerId: string }) => account.providerId === "github"
     );
     // Access token is stored on the account record
-    return (githubAccount as Record<string, unknown> | undefined)?.accessToken as string | undefined;
+    return (githubAccount as Record<string, unknown> | undefined)?.accessToken as
+      | string
+      | undefined;
   } catch {
     return undefined;
   }
@@ -55,7 +57,10 @@ export async function requireRole(
 > {
   const session = await getSession(requestHeaders);
   if (!session?.user) {
-    return { authorized: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+    return {
+      authorized: false,
+      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
   }
 
   // If no role restriction needed (developer can do everything a developer can)
@@ -67,7 +72,8 @@ export async function requireRole(
   // For admin role, check active organization membership
   const hdrs = requestHeaders ?? (await headers());
   try {
-    const orgSession = await auth.api.getFullOrganization({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orgSession = await (auth.api as any).getFullOrganization({
       headers: hdrs,
     });
     const member = orgSession?.members?.find(

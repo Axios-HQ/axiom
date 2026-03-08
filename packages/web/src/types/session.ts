@@ -16,6 +16,9 @@ export interface Artifact {
     provider?: string;
     filename?: string;
     previewStatus?: "active" | "outdated" | "stopped";
+    kind?: string;
+    label?: string;
+    repo?: string;
   };
   createdAt: number;
 }

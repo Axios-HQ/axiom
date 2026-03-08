@@ -119,8 +119,10 @@ describe("CloudflareSandboxProvider", () => {
       });
 
       expect(createFn).toHaveBeenCalledOnce();
-      const callArgs = createFn.mock.calls[0][0];
-      expect(callArgs.env).toMatchObject({
+      const callArgs = (createFn.mock.calls as unknown[][])[0]?.[0] as
+        | Record<string, any>
+        | undefined;
+      expect(callArgs?.env).toMatchObject({
         SESSION_ID: "test-session",
         SANDBOX_ID: "sandbox-123",
         REPO_OWNER: "testowner",
@@ -142,11 +144,13 @@ describe("CloudflareSandboxProvider", () => {
 
       await provider.createSandbox(testConfig);
 
-      const callArgs = createFn.mock.calls[0][0];
-      expect(callArgs.env).not.toHaveProperty("GIT_BRANCH");
-      expect(callArgs.env).not.toHaveProperty("REPO_IMAGE_ID");
-      expect(callArgs.env).not.toHaveProperty("REPO_IMAGE_SHA");
-      expect(callArgs.env).not.toHaveProperty("OPENCODE_SESSION_ID");
+      const callArgs = (createFn.mock.calls as unknown[][])[0]?.[0] as
+        | Record<string, any>
+        | undefined;
+      expect(callArgs?.env).not.toHaveProperty("GIT_BRANCH");
+      expect(callArgs?.env).not.toHaveProperty("REPO_IMAGE_ID");
+      expect(callArgs?.env).not.toHaveProperty("REPO_IMAGE_SHA");
+      expect(callArgs?.env).not.toHaveProperty("OPENCODE_SESSION_ID");
     });
 
     it("throws SandboxProviderError on failure", async () => {
@@ -331,11 +335,13 @@ describe("CloudflareSandboxProvider", () => {
 
       await provider.restoreFromSnapshot(testRestoreConfig);
 
-      const passedBackup = restoreBackupFn.mock.calls[0][0];
-      expect(passedBackup.id).toBe("backup-abc");
-      expect(passedBackup.dir).toBe("/home/user/repo");
-      expect(passedBackup.name).toBe("snapshot-session-123-test");
-      expect(passedBackup.ttlSeconds).toBe(259200);
+      const passedBackup = (restoreBackupFn.mock.calls as unknown[][])[0]?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(passedBackup?.id).toBe("backup-abc");
+      expect(passedBackup?.dir).toBe("/home/user/repo");
+      expect(passedBackup?.name).toBe("snapshot-session-123-test");
+      expect(passedBackup?.ttlSeconds).toBe(259200);
     });
 
     it("classifies invalid snapshot JSON as permanent error", async () => {
@@ -401,8 +407,10 @@ describe("CloudflareSandboxProvider", () => {
         userEnvVars: { SECRET: "value" },
       });
 
-      const callArgs = createFn.mock.calls[0][0];
-      expect(callArgs.env).toMatchObject({
+      const callArgs = (createFn.mock.calls as unknown[][])[0]?.[0] as
+        | Record<string, any>
+        | undefined;
+      expect(callArgs?.env).toMatchObject({
         SESSION_ID: "test-session",
         SANDBOX_ID: "sandbox-456",
         GIT_BRANCH: "fix-branch",
