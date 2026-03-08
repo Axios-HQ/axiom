@@ -278,6 +278,11 @@ class SandboxSupervisor:
 
     def _setup_openai_oauth(self) -> None:
         """Write OpenCode auth.json for ChatGPT OAuth if refresh token is configured."""
+        # API key takes precedence — OpenCode reads OPENAI_API_KEY natively
+        if os.environ.get("OPENAI_API_KEY"):
+            self.log.info("openai.using_api_key")
+            return
+
         refresh_token = os.environ.get("OPENAI_OAUTH_REFRESH_TOKEN")
         if not refresh_token:
             return
@@ -338,10 +343,14 @@ class SandboxSupervisor:
 
         self._install_tools(workdir)
 
-        # Deploy codex auth proxy plugin if OpenAI OAuth is configured
+        # Deploy codex auth proxy plugin only if OAuth is configured and no API key
         opencode_dir = workdir / ".opencode"
         plugin_source = Path("/app/sandbox/codex-auth-plugin.ts")
-        if plugin_source.exists() and os.environ.get("OPENAI_OAUTH_REFRESH_TOKEN"):
+        if (
+            plugin_source.exists()
+            and os.environ.get("OPENAI_OAUTH_REFRESH_TOKEN")
+            and not os.environ.get("OPENAI_API_KEY")
+        ):
             plugin_dir = opencode_dir / "plugins"
             plugin_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(plugin_source, plugin_dir / "codex-auth-plugin.ts")
