@@ -13,7 +13,10 @@ import { buildSessionInternalUrl, SessionInternalPaths } from "./contracts";
 import { generateId, hashToken, timingSafeEqual } from "../auth/crypto";
 import { getGitHubAppConfig } from "../auth/github-app";
 import { createModalClient } from "../sandbox/client";
-import { createModalProvider } from "../sandbox/providers/modal-provider";
+import {
+  createSandboxProvider,
+  type SandboxProviderName,
+} from "../sandbox/providers/factory";
 import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import {
@@ -359,14 +362,15 @@ export class SessionAgent extends Agent<Env> {
    * Create the lifecycle manager with all required adapters.
    */
   private createLifecycleManager(): SandboxLifecycleManager {
-    // Verify Modal configuration
-    if (!this.env.MODAL_API_SECRET || !this.env.MODAL_WORKSPACE) {
-      throw new Error("MODAL_API_SECRET and MODAL_WORKSPACE are required for lifecycle manager");
-    }
+    const providerName = (this.env.SANDBOX_PROVIDER ?? "modal") as SandboxProviderName;
 
-    // Create Modal provider
-    const modalClient = createModalClient(this.env.MODAL_API_SECRET, this.env.MODAL_WORKSPACE);
-    const provider = createModalProvider(modalClient);
+    // Build provider-specific bindings
+    const modalClient =
+      providerName === "modal" && this.env.MODAL_API_SECRET && this.env.MODAL_WORKSPACE
+        ? createModalClient(this.env.MODAL_API_SECRET, this.env.MODAL_WORKSPACE)
+        : undefined;
+
+    const provider = createSandboxProvider(providerName, { modalClient });
 
     // Storage adapter
     const storage: SandboxStorage = {
