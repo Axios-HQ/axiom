@@ -46,6 +46,12 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Playwright
+playwright-report/
+blob-report/
+test-results/
+e2e/.auth/
+
 # Cloudflare
 .wrangler/
 .dev.vars
