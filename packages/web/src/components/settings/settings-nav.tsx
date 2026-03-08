@@ -3,6 +3,7 @@
 import { useIsMobile } from "@/hooks/use-media-query";
 import {
   KeyIcon,
+  BoltIcon,
   ModelIcon,
   BoxIcon,
   KeyboardIcon,
@@ -12,6 +13,11 @@ import {
 } from "@/components/ui/icons";
 
 const NAV_ITEMS = [
+  {
+    id: "api-keys",
+    label: "API Keys",
+    icon: BoltIcon,
+  },
   {
     id: "secrets",
     label: "Secrets",
