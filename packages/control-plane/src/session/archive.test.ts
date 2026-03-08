@@ -2,7 +2,7 @@
  * Unit tests for archive handler behavior.
  *
  * Tests the archive flow: snapshot + sandbox termination + status transition.
- * Since SessionDO is tightly coupled to the runtime, these tests verify
+ * Since SessionAgent is tightly coupled to the runtime, these tests verify
  * the expected behavior through the handler's contract:
  * - Snapshot is attempted before termination
  * - Sandbox is shut down and marked as stopped

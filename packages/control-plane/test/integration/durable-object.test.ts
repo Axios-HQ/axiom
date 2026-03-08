@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
-import type { SessionDO } from "../../src/session/durable-object";
+import type { SessionAgent } from "../../src/session/durable-object";
 import { MIGRATIONS } from "../../src/session/schema";
 
-describe("SessionDO Durable Object", () => {
+describe("SessionAgent Durable Object", () => {
   it("returns 404 for uninitialized session state", async () => {
     const id = env.SESSION.newUniqueId();
     const stub = env.SESSION.get(id);
@@ -67,7 +67,7 @@ describe("SessionDO Durable Object", () => {
       }),
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       const tables = instance.ctx.storage.sql
         .exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         .toArray();
@@ -99,7 +99,7 @@ describe("SessionDO Durable Object", () => {
       }),
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       const rows = instance.ctx.storage.sql
         .exec("SELECT id FROM _schema_migrations ORDER BY id")
         .toArray() as Array<{ id: number }>;

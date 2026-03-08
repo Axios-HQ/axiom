@@ -1,7 +1,7 @@
 /**
  * CallbackNotificationService - Slack/Linear bot callback notifications.
  *
- * Extracted from SessionDO to reduce its size. Handles:
+ * Extracted from SessionAgent to reduce its size. Handles:
  * - Notifying originating clients (Slack, Linear) on execution completion
  * - Throttled tool-call progress callbacks
  * - HMAC payload signing for callback authentication

@@ -77,7 +77,7 @@ module "control_plane_worker" {
   ]
 
   durable_objects = [
-    { binding_name = "SESSION", class_name = "SessionDO" },
+    { binding_name = "SESSION", class_name = "SessionAgent" },
     { binding_name = "SCHEDULER", class_name = "SchedulerDO" },
   ]
 

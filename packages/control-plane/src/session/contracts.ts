@@ -1,6 +1,6 @@
 /**
  * Contract constants for Session Durable Object internal endpoints.
- * Router and SessionDO must both import these to prevent path drift.
+ * Router and SessionAgent must both import these to prevent path drift.
  */
 
 export const SessionInternalPaths = {

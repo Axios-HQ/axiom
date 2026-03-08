@@ -7,7 +7,7 @@
  * - Prompt queue and event streaming
  */
 
-import { DurableObject } from "cloudflare:workers";
+import { Agent } from "agents";
 import { initSchema } from "./schema";
 import { buildSessionInternalUrl, SessionInternalPaths } from "./contracts";
 import { generateId, hashToken, timingSafeEqual } from "../auth/crypto";
@@ -94,8 +94,8 @@ const WS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 /** Statuses that indicate a session has reached a final state and cannot be cancelled. */
 const TERMINAL_STATUSES = new Set(["completed", "archived", "cancelled", "failed"]);
 
-export class SessionDO extends DurableObject<Env> {
-  private sql: SqlStorage;
+export class SessionAgent extends Agent<Env> {
+  private sqlStorage: SqlStorage;
   private repository: SessionRepository;
   private initialized = false;
   private log: Logger;
@@ -120,7 +120,7 @@ export class SessionDO extends DurableObject<Env> {
   // Sandbox event processor (lazily initialized)
   private _sandboxEventProcessor: SessionSandboxEventProcessor | null = null;
 
-  // Internal HTTP route table (transport wiring only; handlers remain on SessionDO).
+  // Internal HTTP route table (transport wiring only; handlers remain on SessionAgent).
   private readonly routes = createSessionInternalRoutes({
     init: (request) => this.handleInit(request),
     state: () => this.handleGetState(),
@@ -146,8 +146,8 @@ export class SessionDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.sql = ctx.storage.sql;
-    this.repository = new SessionRepository(this.sql);
+    this.sqlStorage = ctx.storage.sql;
+    this.repository = new SessionRepository(this.sqlStorage);
     this.log = createLogger("session-do", {}, parseLogLevel(env.LOG_LEVEL));
     // Note: session_id context is set in ensureInitialized() once DB is ready
   }
@@ -227,7 +227,7 @@ export class SessionDO extends DurableObject<Env> {
       this._presenceService = new PresenceService({
         getAuthenticatedClients: () => this.wsManager.getAuthenticatedClients(),
         getClientInfo: (ws) => this.getClientInfo(ws),
-        broadcast: (msg) => this.broadcast(msg),
+        broadcast: (msg) => this.broadcastMessage(msg),
         send: (ws, msg) => this.safeSend(ws, msg),
         getSandboxSocket: () => this.wsManager.getSandboxSocket(),
         isSpawning: () => this.lifecycleManager.isSpawning(),
@@ -272,7 +272,7 @@ export class SessionDO extends DurableObject<Env> {
         getSession: () => this.getSession(),
         updateLastActivity: (timestamp) => this.updateLastActivity(timestamp),
         spawnSandbox: () => this.spawnSandbox(),
-        broadcast: (message) => this.broadcast(message),
+        broadcast: (message) => this.broadcastMessage(message),
         setSessionStatus: async (status) => {
           await this.transitionSessionStatus(status);
         },
@@ -324,7 +324,7 @@ export class SessionDO extends DurableObject<Env> {
         repository: this.repository,
         callbackService: this.callbackService,
         wsManager: this.wsManager,
-        broadcast: (message) => this.broadcast(message),
+        broadcast: (message) => this.broadcastMessage(message),
         getIsProcessing: () => this.getIsProcessing(),
         triggerSnapshot: (reason) => this.triggerSnapshot(reason),
         reconcileSessionStatusAfterExecution: async (success) => {
@@ -390,7 +390,7 @@ export class SessionDO extends DurableObject<Env> {
 
     // Broadcaster adapter
     const broadcaster: SandboxBroadcaster = {
-      broadcast: (message) => this.broadcast(message as ServerMessage),
+      broadcast: (message) => this.broadcastMessage(message as ServerMessage),
     };
 
     // WebSocket manager adapter — thin delegation to wsManager
@@ -478,7 +478,7 @@ export class SessionDO extends DurableObject<Env> {
    */
   private ensureInitialized(): void {
     if (this.initialized) return;
-    initSchema(this.sql);
+    initSchema(this.sqlStorage);
     this.initialized = true;
     const session = this.repository.getSession();
     const sessionId = session?.session_name || session?.id || this.ctx.id.toString();
@@ -637,7 +637,7 @@ export class SessionDO extends DurableObject<Env> {
         // Notify manager that sandbox connected so it can reset the spawning flag
         this.lifecycleManager.onSandboxConnected();
         this.updateSandboxStatus("ready");
-        this.broadcast({ type: "sandbox_status", status: "ready" });
+        this.broadcastMessage({ type: "sandbox_status", status: "ready" });
 
         // Set initial activity timestamp and schedule inactivity check
         // IMPORTANT: Must await to ensure alarm is scheduled before returning
@@ -718,7 +718,7 @@ export class SessionDO extends DurableObject<Env> {
       } else {
         const client = this.wsManager.removeClient(ws);
         if (client) {
-          this.broadcast({ type: "presence_leave", userId: client.userId });
+          this.broadcastMessage({ type: "presence_leave", userId: client.userId });
         }
       }
     } finally {
@@ -1171,7 +1171,7 @@ export class SessionDO extends DurableObject<Env> {
   /**
    * Broadcast message to all authenticated clients.
    */
-  private broadcast(message: ServerMessage): void {
+  private broadcastMessage(message: ServerMessage): void {
     this.wsManager.forEachClientSocket("authenticated_only", (ws) => {
       this.wsManager.send(ws, message);
     });
@@ -1229,7 +1229,7 @@ export class SessionDO extends DurableObject<Env> {
     this.repository.updateSessionStatus(session.id, status, updatedAt);
     this.syncSessionIndexStatus(publicSessionId, status, updatedAt);
 
-    this.broadcast({ type: "session_status", status });
+    this.broadcastMessage({ type: "session_status", status });
 
     // Notify parent session (if this is a child) so its UI can refresh
     this.notifyParentOfStatusChange(session, publicSessionId, status);
@@ -1760,7 +1760,7 @@ export class SessionDO extends DurableObject<Env> {
       generateId: () => generateId(),
       pushBranchToRemote: (headBranch, pushSpec) => this.pushBranchToRemote(headBranch, pushSpec),
       broadcastArtifactCreated: (artifact) => {
-        this.broadcast({
+        this.broadcastMessage({
           type: "artifact_created",
           artifact,
         });
@@ -2072,7 +2072,7 @@ export class SessionDO extends DurableObject<Env> {
       return Response.json({ error: "childSessionId and status are required" }, { status: 400 });
     }
 
-    this.broadcast({
+    this.broadcastMessage({
       type: "child_session_update",
       childSessionId: body.childSessionId,
       status: body.status,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SourceControlProvider } from "../../src/source-control";
-import type { SessionDO } from "../../src/session/durable-object";
+import type { SessionAgent } from "../../src/session/durable-object";
 import { initSession, queryDO, seedMessage } from "./helpers";
 
 describe("POST /internal/create-pr", () => {
@@ -65,7 +65,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec("PRAGMA foreign_keys = OFF");
       instance.ctx.storage.sql.exec(
         "UPDATE messages SET author_id = ? WHERE id = ?",
@@ -111,7 +111,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec(
         "UPDATE participants SET scm_access_token_encrypted = ?, scm_refresh_token_encrypted = ?, scm_token_expires_at = ? WHERE id = ?",
         "invalid-access-token",
@@ -160,7 +160,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       const mockProvider = {
         name: "github",
         generatePushAuth: async () => ({ authType: "app", token: "push-token" as const }),
@@ -251,7 +251,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec(
         "INSERT INTO artifacts (id, type, url, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
         "artifact-pr-existing",

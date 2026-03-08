@@ -35,8 +35,8 @@ export interface SessionInternalRouteHandlers {
 }
 
 /**
- * Build internal SessionDO HTTP routes from injected handlers.
- * Keeps route-to-path wiring separate from SessionDO business handlers.
+ * Build internal SessionAgent HTTP routes from injected handlers.
+ * Keeps route-to-path wiring separate from SessionAgent business handlers.
  */
 export function createSessionInternalRoutes(
   handlers: SessionInternalRouteHandlers

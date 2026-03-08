@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runInDurableObject } from "cloudflare:test";
-import type { SessionDO } from "../../src/session/durable-object";
+import type { SessionAgent } from "../../src/session/durable-object";
 import { initSession, seedSandboxAuthHash } from "./helpers";
 
 describe("GET /internal/state", () => {
@@ -101,7 +101,7 @@ describe("POST /internal/prompt", () => {
     async (status) => {
       const { stub } = await initSession({ userId: "user-1" });
 
-      await runInDurableObject(stub, (instance: SessionDO) => {
+      await runInDurableObject(stub, (instance: SessionAgent) => {
         instance.ctx.storage.sql.exec("UPDATE session SET status = ?", status);
       });
 
@@ -154,7 +154,7 @@ describe("POST /internal/verify-sandbox-token", () => {
 
     // Seed auth_token on the sandbox directly
     const authToken = "test-sandbox-auth-token-12345";
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec(
         "UPDATE sandbox SET auth_token = ?, auth_token_hash = NULL WHERE id = (SELECT id FROM sandbox LIMIT 1)",
         authToken

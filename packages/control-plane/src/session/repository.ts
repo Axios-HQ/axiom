@@ -1,7 +1,7 @@
 /**
  * SessionRepository - Database operations for Session Durable Objects.
  *
- * Consolidates all SQL operations from SessionDO into a single class
+ * Consolidates all SQL operations from SessionAgent into a single class
  * to enable unit testing via mock injection and reduce coupling.
  */
 
