@@ -112,14 +112,39 @@ describe("mergeSecrets", () => {
 
   it("reports exceedsLimit when over threshold", () => {
     const big = "x".repeat(100);
-    const result = mergeSecrets({ A: big }, { B: big }, 150);
+    const result = mergeSecrets({ A: big }, { B: big }, {}, 150);
     expect(result.exceedsLimit).toBe(true);
     expect(result.totalBytes).toBe(200);
   });
 
   it("does not report exceedsLimit at exactly the boundary", () => {
-    const result = mergeSecrets({ A: "12345" }, {}, 5);
+    const result = mergeSecrets({ A: "12345" }, {}, {}, 5);
     expect(result.totalBytes).toBe(5);
+    expect(result.exceedsLimit).toBe(false);
+  });
+
+  it("merges global + user + repo with correct priority", () => {
+    const result = mergeSecrets(
+      { SHARED: "global", GLOBAL_ONLY: "g" },
+      { SHARED: "repo", REPO_ONLY: "r" },
+      { SHARED: "user", USER_ONLY: "u" }
+    );
+    expect(result.merged).toEqual({
+      SHARED: "repo",
+      GLOBAL_ONLY: "g",
+      REPO_ONLY: "r",
+      USER_ONLY: "u",
+    });
+  });
+
+  it("user secrets override global when repo has no override", () => {
+    const result = mergeSecrets({ API_KEY: "global-key" }, {}, { API_KEY: "user-key" });
+    expect(result.merged).toEqual({ API_KEY: "user-key" });
+  });
+
+  it("works with empty user secrets (backward-compatible)", () => {
+    const result = mergeSecrets({ A: "global-a" }, { B: "repo-b" });
+    expect(result.merged).toEqual({ A: "global-a", B: "repo-b" });
     expect(result.exceedsLimit).toBe(false);
   });
 });
