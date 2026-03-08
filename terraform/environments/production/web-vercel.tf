@@ -29,16 +29,22 @@ module "web_app" {
       targets   = ["production", "preview"]
       sensitive = true
     },
-    # NextAuth
+    # better-auth
     {
-      key       = "NEXTAUTH_URL"
+      key       = "BETTER_AUTH_URL"
       value     = local.web_app_url
       targets   = ["production"]
       sensitive = false
     },
     {
-      key       = "NEXTAUTH_SECRET"
-      value     = var.nextauth_secret
+      key       = "BETTER_AUTH_SECRET"
+      value     = var.better_auth_secret
+      targets   = ["production", "preview"]
+      sensitive = true
+    },
+    {
+      key       = "AUTH_DATABASE_URL"
+      value     = var.auth_database_url
       targets   = ["production", "preview"]
       sensitive = true
     },

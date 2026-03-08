@@ -1,13 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { controlPlaneFetch } from "@/lib/control-plane";
 
 export async function GET() {
-  const session = await getSession();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const result = await requireRole("admin");
+  if (!result.authorized) return result.response;
 
   try {
     const response = await controlPlaneFetch("/secrets");
@@ -20,10 +18,8 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
-  const session = await getSession();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const result = await requireRole("admin");
+  if (!result.authorized) return result.response;
 
   try {
     const body = await request.json();

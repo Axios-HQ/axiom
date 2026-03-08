@@ -128,8 +128,11 @@ internal_callback_secret = ""
 # Generate with: openssl rand -hex 32
 modal_api_secret = ""
 
-# NextAuth.js secret
-nextauth_secret = ""
+# better-auth secret (generate with: openssl rand -base64 32)
+better_auth_secret = ""
+
+# better-auth database URL (SQLite path or D1 binding)
+auth_database_url = ""
 
 # =============================================================================
 # Configuration

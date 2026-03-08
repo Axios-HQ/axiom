@@ -1,16 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { controlPlaneFetch } from "@/lib/control-plane";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ owner: string; name: string }> }
 ) {
-  const session = await getSession();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const result = await requireRole("admin");
+  if (!result.authorized) return result.response;
 
   const { owner, name } = await params;
 
@@ -30,10 +28,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ owner: string; name: string }> }
 ) {
-  const session = await getSession();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const result = await requireRole("admin");
+  if (!result.authorized) return result.response;
 
   const { owner, name } = await params;
 

@@ -230,8 +230,14 @@ variable "modal_api_secret" {
   sensitive   = true
 }
 
-variable "nextauth_secret" {
-  description = "NextAuth.js secret (generate with: openssl rand -base64 32)"
+variable "better_auth_secret" {
+  description = "better-auth secret (generate with: openssl rand -base64 32)"
+  type        = string
+  sensitive   = true
+}
+
+variable "auth_database_url" {
+  description = "SQLite database URL for better-auth (e.g., file:./auth.db)"
   type        = string
   sensitive   = true
 }

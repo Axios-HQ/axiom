@@ -1,7 +1,13 @@
 import { betterAuth } from "better-auth";
 import { organization } from "better-auth/plugins";
+import { createAuthMiddleware, APIError } from "better-auth/api";
 import { apiKey } from "@better-auth/api-key";
 import { checkAccessAllowed, parseAllowlist } from "./access-control";
+
+const accessConfig = {
+  allowedUsers: parseAllowlist(process.env.ALLOWED_USERS),
+  allowedDomains: parseAllowlist(process.env.ALLOWED_EMAIL_DOMAINS),
+};
 
 export const auth = betterAuth({
   database: {
@@ -27,6 +33,25 @@ export const auth = betterAuth({
       },
     ]),
   ],
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      // Gate access on social sign-in callback (new accounts + returning users)
+      if (!ctx.path.startsWith("/callback/")) return;
+      const session = ctx.context.newSession ?? ctx.context.session;
+      if (!session?.user) return;
+
+      const allowed = checkAccessAllowed(accessConfig, {
+        githubUsername: session.user.name ?? undefined,
+        email: session.user.email ?? undefined,
+      });
+
+      if (!allowed) {
+        throw new APIError("FORBIDDEN", {
+          message: "Your account is not on the access allowlist",
+        });
+      }
+    }),
+  },
   session: {
     cookieCache: {
       enabled: true,

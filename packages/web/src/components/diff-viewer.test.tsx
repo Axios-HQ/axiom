@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+/// <reference types="@testing-library/jest-dom" />
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import "@testing-library/jest-dom/vitest";
+import * as matchers from "@testing-library/jest-dom/matchers";
 import { DiffViewer, parseUnifiedDiff } from "./diff-viewer";
+
+expect.extend(matchers);
 
 afterEach(() => {
   cleanup();

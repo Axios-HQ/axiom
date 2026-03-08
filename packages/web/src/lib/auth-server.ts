@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { auth } from "./auth";
 
 /**
@@ -39,4 +40,48 @@ export async function getGitHubAccessToken(requestHeaders?: Headers): Promise<st
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Require the user to have a specific organization role.
+ * Returns the session if authorized, or a 403 NextResponse if not.
+ */
+export async function requireRole(
+  role: "admin" | "developer",
+  requestHeaders?: Headers
+): Promise<
+  | { authorized: true; session: NonNullable<Awaited<ReturnType<typeof getSession>>> }
+  | { authorized: false; response: NextResponse }
+> {
+  const session = await getSession(requestHeaders);
+  if (!session?.user) {
+    return { authorized: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+
+  // If no role restriction needed (developer can do everything a developer can)
+  // admin role gates admin-only operations
+  if (role === "developer") {
+    return { authorized: true, session };
+  }
+
+  // For admin role, check active organization membership
+  const hdrs = requestHeaders ?? (await headers());
+  try {
+    const orgSession = await auth.api.getFullOrganization({
+      headers: hdrs,
+    });
+    const member = orgSession?.members?.find(
+      (m: { userId: string }) => m.userId === session.user.id
+    );
+    if (member?.role === "admin" || member?.role === "owner") {
+      return { authorized: true, session };
+    }
+  } catch {
+    // No active org or API error — deny admin access
+  }
+
+  return {
+    authorized: false,
+    response: NextResponse.json({ error: "Admin access required" }, { status: 403 }),
+  };
 }
