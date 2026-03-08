@@ -395,6 +395,12 @@ export class SessionRepository {
     return rows[0] ?? null;
   }
 
+  getOwnerParticipant(): ParticipantRow | null {
+    const result = this.sql.exec("SELECT * FROM participants WHERE role = 'owner' LIMIT 1");
+    const rows = this.rows<ParticipantRow>(result);
+    return rows[0] ?? null;
+  }
+
   getParticipantById(participantId: string): ParticipantRow | null {
     const result = this.sql.exec(`SELECT * FROM participants WHERE id = ?`, participantId);
     const rows = this.rows<ParticipantRow>(result);

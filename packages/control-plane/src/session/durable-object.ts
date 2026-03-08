@@ -13,10 +13,7 @@ import { buildSessionInternalUrl, SessionInternalPaths } from "./contracts";
 import { generateId, hashToken, timingSafeEqual } from "../auth/crypto";
 import { getGitHubAppConfig } from "../auth/github-app";
 import { createModalClient } from "../sandbox/client";
-import {
-  createSandboxProvider,
-  type SandboxProviderName,
-} from "../sandbox/providers/factory";
+import { createSandboxProvider, type SandboxProviderName } from "../sandbox/providers/factory";
 import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import {
@@ -66,6 +63,7 @@ import { SessionWebSocketManagerImpl, type SessionWebSocketManager } from "./web
 import { SessionPullRequestService } from "./pull-request-service";
 import { RepoSecretsStore } from "../db/repo-secrets";
 import { GlobalSecretsStore } from "../db/global-secrets";
+import { UserSecretsStore } from "../db/user-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
 import { OpenAITokenRefreshService } from "./openai-token-refresh-service";
 import { ParticipantService, getAvatarUrl } from "./participant-service";
@@ -1389,10 +1387,41 @@ export class SessionAgent extends Agent<Env> {
       });
     }
 
-    // Merge: repo overrides global
-    const { merged, totalBytes, exceedsLimit } = mergeSecrets(globalSecrets, repoSecrets);
+    // Fetch user secrets for the prompting user
+    let userSecrets: Record<string, string> = {};
+    try {
+      const promptingMsg = this.repository.getProcessingMessageAuthor();
+      let userId: string | null = null;
+
+      if (promptingMsg) {
+        const participant = this.repository.getParticipantById(promptingMsg.author_id);
+        userId = participant?.user_id ?? null;
+      }
+
+      if (!userId) {
+        const ownerParticipant = this.repository.getOwnerParticipant();
+        userId = ownerParticipant?.user_id ?? null;
+      }
+
+      if (userId) {
+        const userStore = new UserSecretsStore(this.env.DB, this.env.REPO_SECRETS_ENCRYPTION_KEY);
+        userSecrets = await userStore.getDecryptedSecrets(userId);
+      }
+    } catch (e) {
+      this.log.warn("Failed to load user secrets, proceeding without", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Merge: repo overrides user overrides global
+    const { merged, totalBytes, exceedsLimit } = mergeSecrets(
+      globalSecrets,
+      repoSecrets,
+      userSecrets
+    );
     const globalCount = Object.keys(globalSecrets).length;
     const repoCount = Object.keys(repoSecrets).length;
+    const userCount = Object.keys(userSecrets).length;
     const mergedCount = Object.keys(merged).length;
 
     if (mergedCount > 0) {
@@ -1400,6 +1429,7 @@ export class SessionAgent extends Agent<Env> {
       this.log[logLevel]("Secrets merged for sandbox", {
         global_count: globalCount,
         repo_count: repoCount,
+        user_count: userCount,
         merged_count: mergedCount,
         payload_bytes: totalBytes,
         exceeds_limit: exceedsLimit,
