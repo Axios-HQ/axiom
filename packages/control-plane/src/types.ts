@@ -46,6 +46,9 @@ export interface Env {
   // Durable Objects (optional)
   SCHEDULER?: DurableObjectNamespace; // SchedulerDO for automation engine
 
+  // R2 buckets
+  MEDIA_BUCKET?: R2Bucket;
+
   // D1 database
   DB: D1Database;
 
