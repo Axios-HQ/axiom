@@ -246,6 +246,131 @@ callbacksRouter.post("/tool_call", async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Agent Update Callback ──────────────────────────────────────────────────
+
+/**
+ * Callback endpoint for mid-session agent updates (screenshots, progress).
+ */
+callbacksRouter.post("/agent-update", async (c) => {
+  const startTime = Date.now();
+  const traceId = c.req.header("x-trace-id") || crypto.randomUUID();
+  const payload = await c.req.json();
+
+  // Validate payload
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    typeof payload.sessionId !== "string" ||
+    typeof payload.message !== "string" ||
+    typeof payload.timestamp !== "number" ||
+    typeof payload.signature !== "string" ||
+    !payload.context ||
+    typeof payload.context !== "object"
+  ) {
+    log.warn("http.request", {
+      trace_id: traceId,
+      http_path: "/callbacks/agent-update",
+      http_status: 400,
+      outcome: "rejected",
+      reject_reason: "invalid_payload",
+      duration_ms: Date.now() - startTime,
+    });
+    return c.json({ error: "invalid payload" }, 400);
+  }
+
+  if (!c.env.INTERNAL_CALLBACK_SECRET) {
+    return c.json({ error: "not configured" }, 500);
+  }
+
+  const isValid = await verifyCallbackSignature(payload, c.env.INTERNAL_CALLBACK_SECRET);
+  if (!isValid) {
+    log.warn("http.request", {
+      trace_id: traceId,
+      http_path: "/callbacks/agent-update",
+      http_status: 401,
+      outcome: "rejected",
+      reject_reason: "invalid_signature",
+      session_id: payload.sessionId,
+      duration_ms: Date.now() - startTime,
+    });
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  // Process in background
+  c.executionCtx.waitUntil(handleAgentUpdateCallback(payload, c.env, traceId));
+
+  return c.json({ ok: true });
+});
+
+async function handleAgentUpdateCallback(
+  payload: {
+    sessionId: string;
+    message: string;
+    screenshotUrl?: string | null;
+    context: {
+      agentSessionId?: string;
+      organizationId?: string;
+      issueId?: string;
+    };
+  },
+  env: Env,
+  traceId?: string
+): Promise<void> {
+  const startTime = Date.now();
+  const { context } = payload;
+
+  if (!context.agentSessionId || !context.organizationId) {
+    log.debug("callback.agent_update", {
+      trace_id: traceId,
+      session_id: payload.sessionId,
+      outcome: "skipped",
+      skip_reason: "missing_agent_context",
+      duration_ms: Date.now() - startTime,
+    });
+    return;
+  }
+
+  const client = await getLinearClient(env, context.organizationId);
+  if (!client) {
+    log.warn("callback.agent_update", {
+      trace_id: traceId,
+      session_id: payload.sessionId,
+      outcome: "skipped",
+      skip_reason: "no_oauth_token",
+      duration_ms: Date.now() - startTime,
+    });
+    return;
+  }
+
+  try {
+    // Build activity body with optional screenshot
+    let body = payload.message;
+    if (payload.screenshotUrl) {
+      body += `\n\n![Screenshot](${payload.screenshotUrl})`;
+    }
+
+    await emitAgentActivity(client, context.agentSessionId, { type: "action", body }, true);
+
+    log.info("callback.agent_update", {
+      trace_id: traceId,
+      session_id: payload.sessionId,
+      agent_session_id: context.agentSessionId,
+      has_screenshot: Boolean(payload.screenshotUrl),
+      outcome: "success",
+      duration_ms: Date.now() - startTime,
+    });
+  } catch (e) {
+    log.warn("callback.agent_update", {
+      trace_id: traceId,
+      session_id: payload.sessionId,
+      agent_session_id: context.agentSessionId,
+      outcome: "error",
+      error: e instanceof Error ? e : new Error(String(e)),
+      duration_ms: Date.now() - startTime,
+    });
+  }
+}
+
 // ─── Completion Callback ─────────────────────────────────────────────────────
 
 async function handleCompletionCallback(
