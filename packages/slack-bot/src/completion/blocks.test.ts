@@ -136,6 +136,86 @@ describe("buildCompletionBlocks", () => {
     expect(createPrButton).toBeUndefined();
   });
 
+  it("includes image blocks for screenshot artifacts", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot1.png",
+          label: "Homepage after changes",
+        },
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot2.png",
+          label: "Settings page",
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const imageBlocks = blocks.filter((b) => b.type === "image");
+
+    expect(imageBlocks).toHaveLength(2);
+    expect(imageBlocks[0]?.image_url).toBe("https://example.com/screenshot1.png");
+    expect(imageBlocks[0]?.alt_text).toBe("Homepage after changes");
+    expect(imageBlocks[1]?.image_url).toBe("https://example.com/screenshot2.png");
+    expect(imageBlocks[1]?.alt_text).toBe("Settings page");
+  });
+
+  it("uses default alt_text when screenshot label is missing", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot.png",
+          label: "",
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const imageBlocks = blocks.filter((b) => b.type === "image");
+
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.alt_text).toBe("Screenshot");
+  });
+
+  it("does not include image blocks when there are no screenshot artifacts", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "pr",
+          url: "https://github.com/octocat/hello-world/pull/42",
+          label: "PR #42",
+          metadata: { number: 42 },
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const imageBlocks = blocks.filter((b) => b.type === "image");
+
+    expect(imageBlocks).toHaveLength(0);
+  });
+
   it("falls back to branch artifact URL when createPrUrl is missing", () => {
     const fallbackUrl = "https://github.com/octocat/hello-world/pull/new/main...feature-branch";
     const response: AgentResponse = {
