@@ -197,7 +197,8 @@ jobs:
           TF_VAR_token_encryption_key: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
           TF_VAR_repo_secrets_encryption_key: ${{ secrets.REPO_SECRETS_ENCRYPTION_KEY }}
           TF_VAR_internal_callback_secret: ${{ secrets.INTERNAL_CALLBACK_SECRET }}
-          TF_VAR_nextauth_secret: ${{ secrets.NEXTAUTH_SECRET }}
+          TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
+          TF_VAR_auth_database_url: ${{ secrets.AUTH_DATABASE_URL }}
           TF_VAR_modal_api_secret: ${{ secrets.MODAL_API_SECRET }}
           TF_VAR_allowed_users: ${{ secrets.ALLOWED_USERS }}
           TF_VAR_allowed_email_domains: ${{ secrets.ALLOWED_EMAIL_DOMAINS }}
@@ -209,7 +210,9 @@ jobs:
           TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
           TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
           TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          TF_VAR_linear_api_key: ${{ secrets.LINEAR_API_KEY }}
           TF_VAR_web_platform: "${{ secrets.WEB_PLATFORM || 'vercel' }}"
+          TF_VAR_sandbox_provider: "${{ secrets.SANDBOX_PROVIDER || 'modal' }}"
           TF_VAR_enable_durable_object_bindings: "${{ secrets.ENABLE_DURABLE_OBJECT_BINDINGS || 'true' }}"
 
       - name: Post Plan Results
@@ -321,7 +324,8 @@ jobs:
           TF_VAR_token_encryption_key: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
           TF_VAR_repo_secrets_encryption_key: ${{ secrets.REPO_SECRETS_ENCRYPTION_KEY }}
           TF_VAR_internal_callback_secret: ${{ secrets.INTERNAL_CALLBACK_SECRET }}
-          TF_VAR_nextauth_secret: ${{ secrets.NEXTAUTH_SECRET }}
+          TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
+          TF_VAR_auth_database_url: ${{ secrets.AUTH_DATABASE_URL }}
           TF_VAR_modal_api_secret: ${{ secrets.MODAL_API_SECRET }}
           TF_VAR_allowed_users: ${{ secrets.ALLOWED_USERS }}
           TF_VAR_allowed_email_domains: ${{ secrets.ALLOWED_EMAIL_DOMAINS }}
@@ -333,7 +337,9 @@ jobs:
           TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
           TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
           TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          TF_VAR_linear_api_key: ${{ secrets.LINEAR_API_KEY }}
           TF_VAR_web_platform: "${{ secrets.WEB_PLATFORM || 'vercel' }}"
+          TF_VAR_sandbox_provider: "${{ secrets.SANDBOX_PROVIDER || 'modal' }}"
           TF_VAR_enable_durable_object_bindings: "${{ secrets.ENABLE_DURABLE_OBJECT_BINDINGS || 'true' }}"
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
