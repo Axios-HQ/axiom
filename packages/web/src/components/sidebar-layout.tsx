@@ -61,9 +61,9 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
   if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-8">
-        <h1 className="text-4xl font-bold text-foreground">Open-Inspect</h1>
+        <img src="/axiom-logo.svg" alt="Axiom" className="w-80 mb-2" />
         <p className="text-muted-foreground max-w-md text-center">
-          Background coding agent for your team. Ship faster with AI-powered code changes.
+          Background AI agent for Axios HQ. Optimize. Refactor. Ship.
         </p>
         <button
           onClick={() => signIn.social({ provider: "github" })}

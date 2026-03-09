@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Open-Inspect",
-  description: "Background coding agent for your team",
+  title: "Axiom",
+  description: "Background AI agent for Axios HQ. Optimize. Refactor. Ship.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

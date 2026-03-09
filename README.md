@@ -1,11 +1,25 @@
-# Background Agents: Open-Inspect
+<p align="center">
+  <img src="docs/axiom-logo.svg" alt="Axiom" width="600" />
+</p>
 
-An open-source background agents coding system inspired by
+```
+  █████╗ ██╗  ██╗██╗ ██████╗ ███╗   ███╗
+ ██╔══██╗╚██╗██╔╝██║██╔═══██╗████╗ ████║
+ ███████║ ╚███╔╝ ██║██║   ██║██╔████╔██║
+ ██╔══██║ ██╔██╗ ██║██║   ██║██║╚██╔╝██║
+ ██║  ██║██╔╝ ██╗██║╚██████╔╝██║ ╚═╝ ██║
+ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝     ╚═╝
+```
+
+**Background AI agent for Axios HQ. Optimize. Refactor. Ship.**
+
+Built on [Open-Inspect](https://github.com/ColeMurray/background-agents) — an open-source background
+agents coding system inspired by
 [Ramp's Inspect](https://builders.ramp.com/post/why-we-built-our-background-agent).
 
 ## Overview
 
-Open-Inspect provides a hosted background coding agent that can:
+Axiom provides a hosted background coding agent that can:
 
 - Work on tasks in the background while you focus on other things
 - Access full development environments with all tools engineers have
