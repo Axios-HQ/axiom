@@ -12,6 +12,8 @@ interface SlackBlock {
   type: string;
   text?: { type: string; text: string };
   elements?: Array<{ type: string; text?: unknown; url?: string; action_id?: string }>;
+  image_url?: string;
+  alt_text?: string;
 }
 
 /**
@@ -54,6 +56,16 @@ export function buildCompletionBlocks(
         type: "mrkdwn",
         text: "*Created:*\n" + response.artifacts.map((a) => `- <${a.url}|${a.label}>`).join("\n"),
       },
+    });
+  }
+
+  // 2b. Screenshot images (inline)
+  const screenshotArtifacts = response.artifacts.filter((a) => a.type === "screenshot" && a.url);
+  for (const screenshot of screenshotArtifacts) {
+    blocks.push({
+      type: "image",
+      image_url: screenshot.url,
+      alt_text: screenshot.label || "Screenshot",
     });
   }
 
