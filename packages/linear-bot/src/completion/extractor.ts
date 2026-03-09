@@ -216,6 +216,16 @@ export function formatAgentResponse(agentResponse: AgentResponse): string {
     parts.push(`**Pull request opened:** ${prArtifact.url}`);
   }
 
+  // Screenshot artifacts
+  const screenshotArtifacts = agentResponse.artifacts.filter(
+    (a) => a.type === "screenshot" && a.url
+  );
+  if (screenshotArtifacts.length > 0) {
+    for (const screenshot of screenshotArtifacts) {
+      parts.push(`![${screenshot.label || "Screenshot"}](${screenshot.url})`);
+    }
+  }
+
   // Files edited/created
   const fileEdits = agentResponse.toolCalls.filter((t) => t.tool === "Edit" || t.tool === "Write");
   if (fileEdits.length > 0) {
