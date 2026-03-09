@@ -55,7 +55,14 @@ async function makeRequest(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return app.fetch(req, env as Env, { waitUntil: vi.fn(), passThroughOnException: vi.fn() });
+  return app.fetch(
+    req,
+    env as Env,
+    {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+    } as unknown as ExecutionContext
+  );
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
