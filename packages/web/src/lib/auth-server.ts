@@ -45,6 +45,35 @@ export async function getGitHubAccessToken(requestHeaders?: Headers): Promise<st
 }
 
 /**
+ * Get the GitHub username (login) for the current user.
+ *
+ * better-auth stores `profile.name || profile.login` as the user's `name`,
+ * so the GitHub username is not directly available on the session. This
+ * helper calls the GitHub API with the stored access token to retrieve it.
+ *
+ * Returns `undefined` when the token is missing or the API call fails.
+ */
+export async function getGitHubLogin(requestHeaders?: Headers): Promise<string | undefined> {
+  const accessToken = await getGitHubAccessToken(requestHeaders);
+  if (!accessToken) return undefined;
+
+  try {
+    const res = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "User-Agent": "open-inspect",
+        Accept: "application/vnd.github+json",
+      },
+    });
+    if (!res.ok) return undefined;
+    const profile = (await res.json()) as { login?: string };
+    return profile.login;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Require the user to have a specific organization role.
  * Returns the session if authorized, or a 403 NextResponse if not.
  */

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getSession, getGitHubAccessToken } from "@/lib/auth-server";
+import { getSession, getGitHubAccessToken, getGitHubLogin } from "@/lib/auth-server";
 import { controlPlaneFetch } from "@/lib/control-plane";
 
 export async function GET(request: NextRequest) {
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
     // Derive identity from server-side session (not client-supplied data)
     const user = session.user;
     const userId = user.id || user.email || "anonymous";
+    const githubLogin = await getGitHubLogin(request.headers);
 
     const sessionBody = {
       repoOwner: body.repoOwner,
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
       scmToken: accessToken,
       userId,
       scmUserId: user.id,
-      scmLogin: user.login,
+      scmLogin: githubLogin,
       scmName: user.name,
       scmEmail: user.email,
     };

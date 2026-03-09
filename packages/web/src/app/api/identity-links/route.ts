@@ -1,11 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSession, getGitHubLogin } from "@/lib/auth-server";
 import { controlPlaneFetch } from "@/lib/control-plane";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -18,8 +17,13 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id || !session.user.login) {
+  const session = await getSession();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const githubLogin = await getGitHubLogin();
+  if (!githubLogin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -41,7 +45,7 @@ export async function POST(request: NextRequest) {
       provider: body.provider,
       externalUserId: body.externalUserId,
       githubUserId: session.user.id,
-      githubLogin: session.user.login,
+      githubLogin,
       githubName: session.user.name,
       createdBy: `github:${session.user.id}`,
     }),
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Mock session data returned by /api/sessions
 const MOCK_SESSIONS = {
@@ -24,7 +24,7 @@ const MOCK_SESSIONS = {
   ],
 };
 
-// Mock next-auth session so the UI considers the user authenticated
+// Mock better-auth session so the UI considers the user authenticated
 const MOCK_AUTH_SESSION = {
   user: {
     name: "Test User",
@@ -39,7 +39,7 @@ const MOCK_AUTH_SESSION = {
 /**
  * Intercept common API routes so tests don't hit a real backend.
  */
-function mockApiRoutes(page: import("@playwright/test").Page) {
+function mockApiRoutes(page: Page) {
   // Auth session
   page.route("**/api/auth/session", (route) =>
     route.fulfill({

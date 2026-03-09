@@ -5,17 +5,17 @@ import fs from "node:fs";
 const AUTH_FILE = path.join(__dirname, ".auth", "user.json");
 
 /**
- * Auth setup that creates a mock storageState file with a next-auth session cookie.
+ * Auth setup that creates a mock storageState file with a better-auth session cookie.
  *
  * TODO: Replace this with a real authentication flow once a test GitHub OAuth app
  * is configured. Options:
- *   1. Use a programmatic login endpoint (e.g. /api/auth/callback/credentials) with
- *      a test-only credentials provider.
+ *   1. Use a programmatic login endpoint (e.g. /api/auth/sign-in/email) with
+ *      a test-only email/password provider.
  *   2. Use Playwright's browser context to complete the GitHub OAuth flow against a
  *      test account, then save the resulting storageState.
- *   3. Seed the NextAuth session database/JWT directly and inject the cookie.
+ *   3. Seed the better-auth session database directly and inject the cookie.
  */
-setup("create authenticated session", async ({ browser }) => {
+setup("create authenticated session", async ({ browser: _browser }) => {
   const authDir = path.dirname(AUTH_FILE);
   if (!fs.existsSync(authDir)) {
     fs.mkdirSync(authDir, { recursive: true });
@@ -27,7 +27,7 @@ setup("create authenticated session", async ({ browser }) => {
   const storageState = {
     cookies: [
       {
-        name: "next-auth.session-token",
+        name: "better-auth.session_token",
         value: "mock-e2e-session-token",
         domain: "localhost",
         path: "/",

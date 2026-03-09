@@ -31,6 +31,9 @@ describe("createSessionInternalRoutes", () => {
       cancel: noopHandler(),
       childSessionUpdate: noopHandler(),
       agentUpdate: noopHandler(),
+      gitPush: noopHandler(),
+      previewUrl: noopHandler(),
+      codeServerReady: noopHandler(),
     });
 
     const methodPathSet = new Set(routes.map((route) => `${route.method} ${route.path}`));
@@ -59,6 +62,9 @@ describe("createSessionInternalRoutes", () => {
         `POST ${SessionInternalPaths.cancel}`,
         `POST ${SessionInternalPaths.childSessionUpdate}`,
         `POST ${SessionInternalPaths.agentUpdate}`,
+        `POST ${SessionInternalPaths.gitPush}`,
+        `POST ${SessionInternalPaths.previewUrl}`,
+        `POST ${SessionInternalPaths.codeServerReady}`,
       ])
     );
   });
