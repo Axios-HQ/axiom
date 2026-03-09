@@ -26,8 +26,22 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode agent globally
-RUN npm install -g opencode-ai
+# Install Chromium and dependencies for headless browser
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libxkbcommon0 \
+    libgbm1 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Install OpenCode agent and browser automation globally
+RUN npm install -g opencode-ai agent-browser
 
 # Create non-root user
 RUN useradd -m -s /bin/bash -d /home/user user
