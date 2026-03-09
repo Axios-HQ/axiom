@@ -11,7 +11,7 @@ import { Agent } from "agents";
 import { initSchema } from "./schema";
 import { buildSessionInternalUrl, SessionInternalPaths } from "./contracts";
 import { generateId, hashToken, timingSafeEqual } from "../auth/crypto";
-import { getGitHubAppConfig } from "../auth/github-app";
+import { getGitHubAppConfig, getCachedInstallationToken } from "../auth/github-app";
 import { createModalClient } from "../sandbox/client";
 import { createSandboxProvider, type SandboxProviderName } from "../sandbox/providers/factory";
 import { createLogger, parseLogLevel } from "../logger";
@@ -66,6 +66,7 @@ import { GlobalSecretsStore } from "../db/global-secrets";
 import { UserSecretsStore } from "../db/user-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
 import { OpenAITokenRefreshService } from "./openai-token-refresh-service";
+import { GitHubTokenRefreshService } from "./github-token-refresh-service";
 import { ParticipantService, getAvatarUrl } from "./participant-service";
 import { UserScmTokenStore } from "../db/user-scm-tokens";
 import { CallbackNotificationService } from "./callback-notification-service";
@@ -139,6 +140,7 @@ export class SessionAgent extends Agent<Env> {
     unarchive: (request) => this.handleUnarchive(request),
     verifySandboxToken: (request) => this.handleVerifySandboxToken(request),
     openaiTokenRefresh: () => this.handleOpenAITokenRefresh(),
+    githubTokenRefresh: () => this.handleGitHubTokenRefresh(),
     spawnContext: () => this.handleGetSpawnContext(),
     childSummary: () => this.handleGetChildSummary(),
     cancel: () => this.handleCancel(),
@@ -1560,6 +1562,27 @@ export class SessionAgent extends Agent<Env> {
       status,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  /**
+   * Handle GitHub token refresh.
+   * Returns a fresh GitHub App installation token for sandbox git operations.
+   */
+  private async handleGitHubTokenRefresh(): Promise<Response> {
+    const config = getGitHubAppConfig(this.env);
+
+    const service = new GitHubTokenRefreshService(
+      config,
+      { REPOS_CACHE: this.env.REPOS_CACHE },
+      this.log
+    );
+
+    const result = await service.refresh(getCachedInstallationToken);
+    if (!result.ok) {
+      return Response.json({ error: result.error }, { status: result.status });
+    }
+
+    return Response.json({ token: result.token }, { status: 200 });
   }
 
   private updateSandboxStatus(status: string): void {

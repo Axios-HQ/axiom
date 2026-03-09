@@ -23,6 +23,7 @@ describe("session internal endpoint contracts", () => {
       "messages",
       "createPr",
       "openaiTokenRefresh",
+      "githubTokenRefresh",
       "wsToken",
       "archive",
       "unarchive",

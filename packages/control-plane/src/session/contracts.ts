@@ -19,6 +19,7 @@ export const SessionInternalPaths = {
   unarchive: "/internal/unarchive",
   verifySandboxToken: "/internal/verify-sandbox-token",
   openaiTokenRefresh: "/internal/openai-token-refresh",
+  githubTokenRefresh: "/internal/github-token-refresh",
   spawnContext: "/internal/spawn-context",
   childSummary: "/internal/child-summary",
   cancel: "/internal/cancel",
