@@ -134,6 +134,18 @@ export interface CompletionCallback {
 }
 
 /**
+ * Agent update callback payload from control-plane (mid-session screenshots/progress).
+ */
+export interface AgentUpdateCallback {
+  sessionId: string;
+  message: string;
+  screenshotUrl?: string | null;
+  timestamp: number;
+  signature: string;
+  context: { channel: string; threadTs?: string };
+}
+
+/**
  * Event response from control-plane events API.
  */
 export type {
