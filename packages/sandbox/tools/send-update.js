@@ -9,7 +9,10 @@ export default tool({
     "Send a progress update to the user. The message appears in real-time wherever the " +
     "session was started (Slack thread, web UI, or Linear issue). Use this to report " +
     "milestones, share screenshots, or ask for input during long tasks. If a screenshot " +
-    "path is provided, the image is uploaded to cloud storage and included in the update.",
+    "path is provided, the image is uploaded to cloud storage and included in the update.\n\n" +
+    "IMPORTANT: Before finishing your work, if you started a dev server or built a UI, " +
+    "take a final screenshot with `agent-browser screenshot --path /tmp/screenshot.png` " +
+    "and send it with this tool so the user can see the result.",
   args: {
     message: z.string().describe("Update message (markdown supported)"),
     screenshotPath: z
