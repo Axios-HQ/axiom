@@ -262,6 +262,17 @@ variable "deployment_name" {
   type        = string
 }
 
+variable "sandbox_provider" {
+  description = "Sandbox provider: 'modal' (default) or 'cloudflare'"
+  type        = string
+  default     = "modal"
+
+  validation {
+    condition     = contains(["modal", "cloudflare"], var.sandbox_provider)
+    error_message = "sandbox_provider must be 'modal' or 'cloudflare'."
+  }
+}
+
 variable "enable_durable_object_bindings" {
   description = "Enable DO bindings. For initial deployment: set to false (applies migrations), then set to true (adds bindings)."
   type        = bool

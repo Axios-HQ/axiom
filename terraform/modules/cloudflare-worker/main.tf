@@ -45,7 +45,12 @@ locals {
       type       = "durable_object_namespace"
       name       = do.binding_name
       class_name = do.class_name
-    }] : []
+    }] : [],
+    # Container bindings (Cloudflare Sandbox SDK)
+    [for cb in var.container_bindings : {
+      type = "container"
+      name = cb.binding_name
+    }]
   )
 }
 

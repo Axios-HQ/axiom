@@ -375,7 +375,9 @@ export class SessionAgent extends Agent<Env> {
         ? createModalClient(this.env.MODAL_API_SECRET, this.env.MODAL_WORKSPACE)
         : undefined;
 
-    const provider = createSandboxProvider(providerName, { modalClient });
+    const cloudflareSandboxBinding = providerName === "cloudflare" ? this.env.SANDBOX : undefined;
+
+    const provider = createSandboxProvider(providerName, { modalClient, cloudflareSandboxBinding });
 
     // Storage adapter
     const storage: SandboxStorage = {
