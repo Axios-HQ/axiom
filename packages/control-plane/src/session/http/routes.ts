@@ -32,6 +32,7 @@ export interface SessionInternalRouteHandlers {
   childSummary: SessionInternalRouteHandler;
   cancel: SessionInternalRouteHandler;
   childSessionUpdate: SessionInternalRouteHandler;
+  agentUpdate: SessionInternalRouteHandler;
 }
 
 /**
@@ -82,5 +83,6 @@ export function createSessionInternalRoutes(
       path: SessionInternalPaths.childSessionUpdate,
       handler: handlers.childSessionUpdate,
     },
+    { method: "POST", path: SessionInternalPaths.agentUpdate, handler: handlers.agentUpdate },
   ];
 }

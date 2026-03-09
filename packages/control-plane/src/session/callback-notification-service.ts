@@ -361,4 +361,88 @@ export class CallbackNotificationService {
       });
     }
   }
+
+  /**
+   * Notify the originating client of an agent update (screenshot, progress message).
+   * Routes to the correct service binding based on the message source.
+   * Fire-and-forget, no retries.
+   */
+  async notifyAgentUpdate(
+    messageId: string,
+    message: string,
+    screenshotUrl?: string
+  ): Promise<void> {
+    const messageRecord = this.repository.getMessageCallbackContext(messageId);
+    if (!messageRecord?.callback_context) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        outcome: "skipped",
+        skip_reason: "no_callback_context",
+      });
+      return;
+    }
+    if (!this.env.INTERNAL_CALLBACK_SECRET) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        outcome: "skipped",
+        skip_reason: "no_secret",
+      });
+      return;
+    }
+
+    const source = messageRecord.source ?? null;
+    const binding = this.getBinding(source);
+    if (!binding) {
+      this.log.debug("callback.agent_update", {
+        message_id: messageId,
+        source,
+        outcome: "skipped",
+        skip_reason: "no_binding",
+      });
+      return;
+    }
+
+    const sessionId = this.getSessionId();
+    const context = JSON.parse(messageRecord.callback_context);
+    const now = Date.now();
+
+    const payloadData = {
+      sessionId,
+      messageId,
+      message,
+      screenshotUrl: screenshotUrl ?? null,
+      timestamp: now,
+      context,
+    };
+
+    const signature = await this.signPayload(payloadData, this.env.INTERNAL_CALLBACK_SECRET);
+    const payload = { ...payloadData, signature };
+
+    try {
+      const response = await binding.fetch("https://internal/callbacks/agent-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      this.log.info("callback.agent_update", {
+        message_id: messageId,
+        session_id: sessionId,
+        source,
+        has_screenshot: Boolean(screenshotUrl),
+        outcome: response.ok ? "success" : "error",
+        http_status: response.status,
+        duration_ms: Date.now() - now,
+      });
+    } catch (e) {
+      this.log.warn("callback.agent_update", {
+        message_id: messageId,
+        session_id: sessionId,
+        source,
+        outcome: "error",
+        error: e instanceof Error ? e : new Error(String(e)),
+        duration_ms: Date.now() - now,
+      });
+    }
+  }
 }

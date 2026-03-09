@@ -143,6 +143,7 @@ export class SessionAgent extends Agent<Env> {
     childSummary: () => this.handleGetChildSummary(),
     cancel: () => this.handleCancel(),
     childSessionUpdate: (request) => this.handleChildSessionUpdate(request),
+    agentUpdate: (request) => this.handleAgentUpdate(request),
   });
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -1709,6 +1710,51 @@ export class SessionAgent extends Agent<Env> {
   private async handleSandboxEvent(request: Request): Promise<Response> {
     const event = (await request.json()) as SandboxEvent;
     await this.processSandboxEvent(event);
+    return Response.json({ status: "ok" });
+  }
+
+  /**
+   * Handle agent update from sandbox: broadcast to WebSocket clients and
+   * notify the originating bot (Slack/Linear) via callback.
+   */
+  private async handleAgentUpdate(request: Request): Promise<Response> {
+    const body = (await request.json()) as { message?: string; screenshotUrl?: string };
+    if (!body.message) {
+      return Response.json({ error: "message is required" }, { status: 400 });
+    }
+
+    // Broadcast token event to WebSocket clients
+    const tokenEvent: SandboxEvent = {
+      type: "token",
+      content: body.message,
+      messageId: crypto.randomUUID(),
+      sandboxId: "agent-update",
+      timestamp: Date.now(),
+    };
+    await this.processSandboxEvent(tokenEvent);
+
+    // Broadcast artifact event if screenshot provided
+    if (body.screenshotUrl) {
+      const artifactEvent: SandboxEvent = {
+        type: "artifact",
+        artifactType: "screenshot",
+        url: body.screenshotUrl,
+        sandboxId: "agent-update",
+        timestamp: Date.now(),
+      };
+      await this.processSandboxEvent(artifactEvent);
+    }
+
+    // Notify originating bot via callback
+    const processingMessage = this.repository.getProcessingMessage();
+    if (processingMessage) {
+      await this.callbackService.notifyAgentUpdate(
+        processingMessage.id,
+        body.message,
+        body.screenshotUrl
+      );
+    }
+
     return Response.json({ status: "ok" });
   }
 

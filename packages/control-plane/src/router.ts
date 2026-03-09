@@ -2,7 +2,7 @@
  * API router for Open-Inspect Control Plane.
  */
 
-import type { Env, CreateSessionRequest, CreateSessionResponse, SandboxEvent } from "./types";
+import type { Env, CreateSessionRequest, CreateSessionResponse } from "./types";
 import { generateId, encryptToken } from "./auth/crypto";
 import { verifyInternalToken } from "./auth/internal";
 import {
@@ -860,59 +860,20 @@ async function handleAgentUpdate(
   const sessionId = match.groups?.id;
   if (!sessionId) return error("Session ID required");
 
-  const body = (await request.json()) as { message?: string; screenshotUrl?: string };
-  if (!body.message) {
-    return error("message is required", 400);
-  }
-
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
-  // Forward a token event with the message content
-  const tokenEvent: SandboxEvent = {
-    type: "token",
-    content: body.message,
-    messageId: crypto.randomUUID(),
-    sandboxId: "agent-update",
-    timestamp: Date.now(),
-  };
-
-  await stub.fetch(
+  return stub.fetch(
     internalRequest(
-      buildSessionInternalUrl(SessionInternalPaths.sandboxEvent),
+      buildSessionInternalUrl(SessionInternalPaths.agentUpdate),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tokenEvent),
+        body: request.body,
       },
       ctx
     )
   );
-
-  // If a screenshot URL is provided, also forward an artifact event
-  if (body.screenshotUrl) {
-    const artifactEvent: SandboxEvent = {
-      type: "artifact",
-      artifactType: "screenshot",
-      url: body.screenshotUrl,
-      sandboxId: "agent-update",
-      timestamp: Date.now(),
-    };
-
-    await stub.fetch(
-      internalRequest(
-        buildSessionInternalUrl(SessionInternalPaths.sandboxEvent),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(artifactEvent),
-        },
-        ctx
-      )
-    );
-  }
-
-  return json({ status: "ok" });
 }
 
 async function handleSessionStop(
