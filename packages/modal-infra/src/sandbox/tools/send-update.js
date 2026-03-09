@@ -40,6 +40,7 @@ export default tool({
           headers: {
             "Content-Type": "image/png",
             "X-Filename": "screenshot.png",
+            "X-Session-Id": process.env.SESSION_ID || "",
           },
           body: buffer,
         })

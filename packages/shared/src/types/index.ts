@@ -210,6 +210,7 @@ export type SandboxEvent =
       type: "artifact";
       artifactType: string;
       url: string;
+      messageId?: string;
       metadata?: Record<string, unknown>;
       sandboxId: string;
       timestamp: number;

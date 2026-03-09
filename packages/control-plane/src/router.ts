@@ -505,8 +505,8 @@ export async function handleRequest(
       if (isSandboxAuthRoute(path)) {
         // Extract session ID from path (e.g., /sessions/abc123/pr -> abc123)
         const sessionIdMatch = path.match(/^\/sessions\/([^/]+)\//);
-        if (sessionIdMatch) {
-          const sessionId = sessionIdMatch[1];
+        const sessionId = sessionIdMatch?.[1] ?? request.headers.get("x-session-id");
+        if (sessionId) {
           const sandboxAuthError = await verifySandboxAuth(request, env, sessionId, ctx);
           if (!sandboxAuthError) {
             // Sandbox auth passed, continue to route handler
