@@ -113,7 +113,7 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
-  /^\/api\/media\/upload$/, // Media upload from sandbox
+  /^\/sessions\/[^/]+\/media\/upload$/, // Media upload from sandbox
   /^\/sessions\/[^/]+\/agent-update$/, // Agent update from sandbox
 ];
 
@@ -505,7 +505,7 @@ export async function handleRequest(
       if (isSandboxAuthRoute(path)) {
         // Extract session ID from path (e.g., /sessions/abc123/pr -> abc123)
         const sessionIdMatch = path.match(/^\/sessions\/([^/]+)\//);
-        const sessionId = sessionIdMatch?.[1] ?? request.headers.get("x-session-id");
+        const sessionId = sessionIdMatch?.[1];
         if (sessionId) {
           const sandboxAuthError = await verifySandboxAuth(request, env, sessionId, ctx);
           if (!sandboxAuthError) {

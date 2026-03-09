@@ -1,6 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import { z } from "zod";
-import { bridgeFetch, controlPlaneFetch, extractError } from "./_bridge-client.js";
+import { bridgeFetch, extractError } from "./_bridge-client.js";
 import { readFileSync } from "fs";
 
 export default tool({
@@ -35,12 +35,11 @@ export default tool({
 
       let uploadResp;
       try {
-        uploadResp = await controlPlaneFetch("/api/media/upload", {
+        uploadResp = await bridgeFetch("/media/upload", {
           method: "POST",
           headers: {
             "Content-Type": "image/png",
             "X-Filename": "screenshot.png",
-            "X-Session-Id": process.env.SESSION_ID || "",
           },
           body: buffer,
         });

@@ -7,6 +7,7 @@ import type { Env, CompletionCallback, AgentUpdateCallback } from "./types";
 import { extractAgentResponse } from "./completion/extractor";
 import { buildCompletionBlocks, getFallbackText } from "./completion/blocks";
 import { postMessage, removeReaction } from "./utils/slack-client";
+import { timingSafeEqual } from "@open-inspect/shared";
 import { createLogger } from "./logger";
 
 const log = createLogger("callback");
@@ -57,7 +58,7 @@ async function verifyCallbackSignature(
   const expectedHex = Array.from(new Uint8Array(expectedSig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return signature === expectedHex;
+  return timingSafeEqual(signature, expectedHex);
 }
 
 /**

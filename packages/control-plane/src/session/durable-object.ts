@@ -1735,6 +1735,13 @@ export class SessionAgent extends Agent<Env> {
 
     // Broadcast artifact event if screenshot provided
     if (body.screenshotUrl) {
+      const workerUrl = this.env.WORKER_URL;
+      if (workerUrl && !body.screenshotUrl.startsWith(workerUrl)) {
+        return Response.json(
+          { error: "screenshotUrl must be a media URL from this service" },
+          { status: 400 }
+        );
+      }
       const artifactEvent: SandboxEvent = {
         type: "artifact",
         artifactType: "screenshot",
