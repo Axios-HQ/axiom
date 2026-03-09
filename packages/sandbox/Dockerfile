@@ -51,6 +51,11 @@ COPY bridge/ /opt/bridge/
 COPY supervisor.sh /opt/supervisor.sh
 RUN chmod +x /opt/supervisor.sh
 
+# Copy git credential helper and gh CLI wrapper
+COPY git-credential-helper.sh /app/sandbox/git-credential-helper.sh
+COPY gh-wrapper.sh /app/sandbox/gh-wrapper.sh
+RUN chmod +x /app/sandbox/git-credential-helper.sh /app/sandbox/gh-wrapper.sh
+
 # Install bridge dependencies
 WORKDIR /opt/bridge
 RUN npm install --production
