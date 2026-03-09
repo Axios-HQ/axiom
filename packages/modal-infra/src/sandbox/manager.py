@@ -411,12 +411,14 @@ class SandboxManager:
             provider = session_config.get("provider", "anthropic")
             model = session_config.get("model", "claude-sonnet-4-6")
             session_id = session_config.get("session_id", "")
+            session_repos = session_config.get("session_repos")
         else:
             repo_owner = session_config.repo_owner
             repo_name = session_config.repo_name
             provider = session_config.provider
             model = session_config.model
             session_id = session_config.session_id
+            session_repos = session_config.session_repos
 
         # Use provided sandbox_id or generate one
         if not sandbox_id:
@@ -446,6 +448,7 @@ class SandboxManager:
                         "session_id": session_id,
                         "repo_owner": repo_owner,
                         "repo_name": repo_name,
+                        "session_repos": session_repos,
                         "provider": provider,
                         "model": model,
                     }

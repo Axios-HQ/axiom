@@ -37,8 +37,12 @@ import {
   StopIcon,
   CopyIcon,
   ErrorIcon,
+  PaperclipIcon,
 } from "@/components/ui/icons";
 import { Combobox, type ComboboxGroup } from "@/components/ui/combobox";
+import { useFileUpload } from "@/hooks/use-file-upload";
+import { FileUploadZone } from "@/components/file-upload-zone";
+import { AttachmentPreview } from "@/components/attachment-preview";
 
 type ToolCallEvent = Extract<SandboxEvent, { type: "tool_call" }>;
 
@@ -185,6 +189,7 @@ function SessionPageContent() {
     currentParticipantId,
     isProcessing,
     loadingHistory,
+    codeServer,
     sendPrompt,
     stopExecution,
     sendTyping,
@@ -234,6 +239,8 @@ function SessionPageContent() {
   );
 
   const [prompt, setPrompt] = useState("");
+  const fileUpload = useFileUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
   const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(
     getDefaultReasoningEffort(DEFAULT_MODEL)
@@ -270,10 +277,12 @@ function SessionPageContent() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim() || isProcessing) return;
-
-    sendPrompt(prompt, selectedModel, reasoningEffort);
+    const uploaded = fileUpload.getUploadedAttachments();
+    const hasUploading = fileUpload.attachments.some((a) => a.uploading);
+    if (isProcessing || hasUploading || (!prompt.trim() && uploaded.length === 0)) return;
+    sendPrompt(prompt, selectedModel, reasoningEffort, uploaded.length > 0 ? uploaded : undefined);
     setPrompt("");
+    fileUpload.clearAttachments();
     // Revalidate sidebar so this session bubbles to the top
     mutate("/api/sessions");
   };
@@ -284,6 +293,21 @@ function SessionPageContent() {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      fileUpload.addFiles(imageFiles);
     }
   };
 
@@ -330,6 +354,10 @@ function SessionPageContent() {
       loadOlderEvents={loadOlderEvents}
       modelOptions={enabledModelOptions}
       fallbackSessionInfo={fallbackSessionInfo}
+      fileUpload={fileUpload}
+      fileInputRef={fileInputRef}
+      handlePaste={handlePaste}
+      codeServer={codeServer}
     />
   );
 }
@@ -364,6 +392,10 @@ function SessionContent({
   loadOlderEvents,
   modelOptions,
   fallbackSessionInfo,
+  fileUpload,
+  fileInputRef,
+  handlePaste,
+  codeServer,
 }: {
   sessionState: SessionState;
   connected: boolean;
@@ -394,6 +426,10 @@ function SessionContent({
   loadOlderEvents: () => void;
   modelOptions: ModelCategory[];
   fallbackSessionInfo: FallbackSessionInfo;
+  fileUpload: ReturnType<typeof useFileUpload>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  handlePaste: (e: React.ClipboardEvent) => void;
+  codeServer?: ReturnType<typeof useSessionSocket>["codeServer"];
 }) {
   const { isOpen, toggle } = useSidebarContext();
   const isBelowLg = useMediaQuery("(max-width: 1023px)");
@@ -660,6 +696,7 @@ function SessionContent({
           participants={participants}
           events={events}
           artifacts={artifacts}
+          codeServer={codeServer}
         />
       </main>
 
@@ -711,6 +748,7 @@ function SessionContent({
                   participants={participants}
                   events={events}
                   artifacts={artifacts}
+                  codeServer={codeServer}
                 />
               </div>
             </div>
@@ -739,6 +777,7 @@ function SessionContent({
                   participants={participants}
                   events={events}
                   artifacts={artifacts}
+                  codeServer={codeServer}
                 />
               </div>
             </div>
@@ -761,94 +800,132 @@ function SessionContent({
           </div>
 
           {/* Input container */}
-          <div className="border border-border bg-input rounded-xl">
-            {/* Text input area with floating send button */}
-            <div className="relative">
-              <textarea
-                ref={inputRef}
-                value={prompt}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder={isProcessing ? "Type your next message..." : "Ask or build anything"}
-                className="w-full resize-none bg-transparent px-4 pt-4 pb-12 focus:outline-none text-foreground placeholder:text-secondary-foreground rounded-t-xl"
-                rows={3}
+          <FileUploadZone onFiles={fileUpload.addFiles} disabled={isProcessing}>
+            <div className="border border-border bg-input">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,application/pdf,text/plain,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    fileUpload.addFiles(e.target.files);
+                    e.target.value = "";
+                  }
+                }}
               />
-              {/* Floating action buttons */}
-              <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                {isProcessing && prompt.trim() && (
-                  <span className="text-xs text-amber-500">Waiting...</span>
-                )}
-                {isProcessing && (
+              {/* Attachment preview */}
+              <AttachmentPreview
+                attachments={fileUpload.attachments}
+                onRemove={fileUpload.removeAttachment}
+              />
+
+              {/* Text input area with floating send button */}
+              <div className="relative">
+                <textarea
+                  ref={inputRef}
+                  value={prompt}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  placeholder={isProcessing ? "Type your next message..." : "Ask or build anything"}
+                  className="w-full resize-none bg-transparent px-4 pt-4 pb-12 focus:outline-none text-foreground placeholder:text-secondary-foreground"
+                  rows={3}
+                />
+                {/* Floating action buttons */}
+                <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                  {isProcessing && prompt.trim() && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">Waiting...</span>
+                  )}
                   <button
                     type="button"
-                    onClick={stopExecution}
-                    className="p-2 rounded-lg text-danger hover:text-danger/80 hover:bg-danger-muted transition"
-                    title="Stop"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessing}
+                    className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
+                    title="Attach file"
+                    aria-label="Attach file"
                   >
-                    <StopIcon className="w-5 h-5" />
+                    <PaperclipIcon className="w-5 h-5" />
                   </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={!prompt.trim() || isProcessing}
-                  className="p-2 rounded-lg text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
-                  title={
-                    isProcessing && prompt.trim()
-                      ? "Wait for execution to complete"
-                      : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
-                  }
-                  aria-label={
-                    isProcessing && prompt.trim()
-                      ? "Wait for execution to complete"
-                      : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
-                  }
-                >
-                  <SendIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Footer row with model selector, reasoning pills, and agent label */}
-            <div className="flex flex-col gap-2 px-4 py-2 border-t border-border-muted sm:flex-row sm:items-center sm:justify-between sm:gap-0">
-              {/* Left side - Model selector + Reasoning pills */}
-              <div className="flex flex-wrap items-center gap-2 sm:gap-4 min-w-0">
-                <Combobox
-                  value={selectedModel}
-                  onChange={setSelectedModel}
-                  items={
-                    modelOptions.map((group) => ({
-                      category: group.category,
-                      options: group.models.map((model) => ({
-                        value: model.id,
-                        label: model.name,
-                        description: model.description,
-                      })),
-                    })) as ComboboxGroup[]
-                  }
-                  direction="up"
-                  dropdownWidth="w-56"
-                  disabled={isProcessing}
-                  triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  <ModelIcon className="w-3.5 h-3.5" />
-                  <span className="truncate max-w-[9rem] sm:max-w-none">
-                    {formatModelNameLower(selectedModel)}
-                  </span>
-                </Combobox>
-
-                {/* Reasoning effort pills */}
-                <ReasoningEffortPills
-                  selectedModel={selectedModel}
-                  reasoningEffort={reasoningEffort}
-                  onSelect={setReasoningEffort}
-                  disabled={isProcessing}
-                />
+                  {isProcessing && (
+                    <button
+                      type="button"
+                      onClick={stopExecution}
+                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                      title="Stop execution"
+                      aria-label="Stop execution"
+                    >
+                      <StopIcon className="w-5 h-5" />
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={
+                      isProcessing ||
+                      fileUpload.attachments.some((a) => a.uploading) ||
+                      (!prompt.trim() && fileUpload.getUploadedAttachments().length === 0)
+                    }
+                    className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
+                    title={
+                      isProcessing && prompt.trim()
+                        ? "Wait for execution to complete"
+                        : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
+                    }
+                    aria-label={
+                      isProcessing && prompt.trim()
+                        ? "Wait for execution to complete"
+                        : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
+                    }
+                  >
+                    <SendIcon className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
-              {/* Right side - Agent label */}
-              <span className="hidden sm:inline text-sm text-muted-foreground">build agent</span>
+              {/* Footer row with model selector, reasoning pills, and agent label */}
+              <div className="flex flex-col gap-2 px-4 py-2 border-t border-border-muted sm:flex-row sm:items-center sm:justify-between sm:gap-0">
+                {/* Left side - Model selector + Reasoning pills */}
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4 min-w-0">
+                  <Combobox
+                    value={selectedModel}
+                    onChange={setSelectedModel}
+                    items={
+                      modelOptions.map((group) => ({
+                        category: group.category,
+                        options: group.models.map((model) => ({
+                          value: model.id,
+                          label: model.name,
+                          description: model.description,
+                        })),
+                      })) as ComboboxGroup[]
+                    }
+                    direction="up"
+                    dropdownWidth="w-56"
+                    disabled={isProcessing}
+                    triggerClassName="flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    <ModelIcon className="w-3.5 h-3.5" />
+                    <span className="truncate max-w-[9rem] sm:max-w-none">
+                      {formatModelNameLower(selectedModel)}
+                    </span>
+                  </Combobox>
+
+                  {/* Reasoning effort pills */}
+                  <ReasoningEffortPills
+                    selectedModel={selectedModel}
+                    reasoningEffort={reasoningEffort}
+                    onSelect={setReasoningEffort}
+                    disabled={isProcessing}
+                  />
+                </div>
+
+                {/* Right side - Agent label */}
+                <span className="hidden sm:inline text-sm text-muted-foreground">Axiom</span>
+              </div>
             </div>
-          </div>
+          </FileUploadZone>
         </form>
       </footer>
     </div>
@@ -1168,6 +1245,24 @@ const EventItem = memo(function EventItem({
       }
       return null;
     }
+
+    case "agent_update":
+      return (
+        <div className="border-l-2 border-accent pl-3 my-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-medium text-muted-foreground">Agent Update</span>
+            <span className="text-xs text-secondary-foreground">{time}</span>
+          </div>
+          <SafeMarkdown content={event.message} className="text-sm" />
+          {event.screenshotUrl && (
+            <img
+              src={event.screenshotUrl}
+              alt="Agent screenshot"
+              className="mt-2 max-w-lg rounded border border-border"
+            />
+          )}
+        </div>
+      );
 
     default:
       return null;

@@ -7,6 +7,7 @@ type SessionRow = {
   title: string | null;
   repo_owner: string;
   repo_name: string;
+  session_repos_json: string | null;
   model: string;
   reasoning_effort: string | null;
   base_branch: string | null;
@@ -117,6 +118,7 @@ class FakeD1Database {
         title,
         repoOwner,
         repoName,
+        sessionReposJson,
         model,
         reasoningEffort,
         baseBranch,
@@ -133,6 +135,7 @@ class FakeD1Database {
         string | null,
         string,
         string,
+        string | null,
         string,
         string | null,
         string | null,
@@ -152,6 +155,7 @@ class FakeD1Database {
           title,
           repo_owner: repoOwner,
           repo_name: repoName,
+          session_repos_json: sessionReposJson,
           model,
           reasoning_effort: reasoningEffort,
           base_branch: baseBranch,
@@ -342,6 +346,22 @@ describe("SessionIndexStore", () => {
       expect(result?.parentSessionId).toBe("parent-1");
       expect(result?.spawnSource).toBe("agent");
       expect(result?.spawnDepth).toBe(1);
+    });
+
+    it("stores session repo scope json when provided", async () => {
+      const session = makeSession({
+        id: "scope-1",
+        sessionReposJson:
+          '[{"repoOwner":"acme","repoName":"web-app","order":0,"isPrimary":true,"isEditable":true}]',
+      });
+      await store.create(session);
+
+      const result = await store.get("scope-1");
+      expect(JSON.parse(result?.sessionReposJson ?? "[]")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ repoOwner: "acme", repoName: "web-app" }),
+        ])
+      );
     });
   });
 

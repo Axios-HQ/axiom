@@ -16,6 +16,7 @@ import { generateId } from "../auth/crypto";
 import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import type { Env } from "../types";
+import { runIdentityLinkSync } from "../identity-sync/service";
 
 /** Max automations to process per tick (backpressure). */
 const MAX_PER_TICK = 25;
@@ -28,6 +29,7 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 90 * 60 * 1000;
 
 /** Consecutive failure threshold for auto-pause. */
 const AUTO_PAUSE_THRESHOLD = 3;
+const IDENTITY_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export class SchedulerDO extends DurableObject<Env> {
   private readonly log: Logger;
@@ -95,6 +97,16 @@ export class SchedulerDO extends DurableObject<Env> {
 
     // 1. Recovery sweep
     await this.recoverySweep(store);
+
+    // 1b. Daily identity sync for Slack+Linear user mappings
+    try {
+      await this.maybeRunDailyIdentitySync();
+    } catch (e) {
+      this.log.error("Daily identity sync failed", {
+        event: "identity_link.sync.daily_error",
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     // 2. Process overdue automations
     const overdue = await store.getOverdueAutomations(now, MAX_PER_TICK);
@@ -198,6 +210,38 @@ export class SchedulerDO extends DurableObject<Env> {
 
     return new Response(JSON.stringify({ processed, skipped, failed }), {
       headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  private async maybeRunDailyIdentitySync(): Promise<void> {
+    if (!this.env.SLACK_BOT_TOKEN || !this.env.LINEAR_API_KEY) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastRunAt = (await this.ctx.storage.get<number>("identity_sync_last_run_at")) ?? 0;
+    if (lastRunAt > 0 && now - lastRunAt < IDENTITY_SYNC_INTERVAL_MS) {
+      return;
+    }
+
+    const domain = this.env.IDENTITY_LINK_SYNC_DOMAIN || "axioshq.com";
+    const result = await runIdentityLinkSync({
+      db: this.env.DB,
+      slackBotToken: this.env.SLACK_BOT_TOKEN,
+      linearApiKey: this.env.LINEAR_API_KEY,
+      domain,
+      mode: "apply",
+      overrideManual: false,
+      log: this.log,
+    });
+
+    await this.ctx.storage.put("identity_sync_last_run_at", now);
+    this.log.info("identity_link.sync.daily", {
+      event: "identity_link.sync.daily",
+      domain,
+      linked: result.linked,
+      skipped: result.skipped,
+      conflicted: result.conflicted,
     });
   }
 

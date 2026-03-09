@@ -31,6 +31,62 @@ describe("GET /internal/state", () => {
 
     expect(state.model).toBe("anthropic/claude-sonnet-4-5");
   });
+
+  it("state includes ordered multi-repo scope", async () => {
+    const { stub } = await initSession({
+      repoOwner: "acme",
+      repoName: "web-app",
+      repoId: 12345,
+    });
+
+    await runInDurableObject(stub, (instance: SessionDO) => {
+      instance.ctx.storage.sql.exec("DELETE FROM session_repos");
+      instance.ctx.storage.sql.exec(
+        "INSERT INTO session_repos (id, repo_owner, repo_name, repo_id, order_index, is_primary, is_editable) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "repo-1",
+        "acme",
+        "web-app",
+        12345,
+        0,
+        1,
+        1
+      );
+      instance.ctx.storage.sql.exec(
+        "INSERT INTO session_repos (id, repo_owner, repo_name, repo_id, order_index, is_primary, is_editable) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "repo-2",
+        "acme",
+        "api",
+        67890,
+        1,
+        0,
+        0
+      );
+    });
+
+    const res = await stub.fetch("http://internal/internal/state");
+    const state = await res.json<{
+      sessionRepos: Array<{
+        repoOwner: string;
+        repoName: string;
+        order: number;
+        isPrimary: boolean;
+      }>;
+    }>();
+
+    expect(state.sessionRepos).toHaveLength(2);
+    expect(state.sessionRepos[0]).toMatchObject({
+      repoOwner: "acme",
+      repoName: "web-app",
+      order: 0,
+      isPrimary: true,
+    });
+    expect(state.sessionRepos[1]).toMatchObject({
+      repoOwner: "acme",
+      repoName: "api",
+      order: 1,
+      isPrimary: false,
+    });
+  });
 });
 
 describe("POST /internal/archive", () => {

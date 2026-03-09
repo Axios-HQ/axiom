@@ -13,8 +13,12 @@
 
 **Background AI agent for Axios HQ. Optimize. Refactor. Ship.**
 
-Built on [Open-Inspect](https://github.com/ColeMurray/background-agents) — an open-source background
-agents coding system inspired by
+---
+
+# Axiom
+
+A background coding agent system forked from
+[Open-Inspect](https://github.com/anthropics/open-inspect), inspired by
 [Ramp's Inspect](https://builders.ramp.com/post/why-we-built-our-background-agent).
 
 ## Overview

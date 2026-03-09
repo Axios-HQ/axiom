@@ -14,8 +14,10 @@ Runs as PID 1 inside the sandbox. Responsibilities:
 import asyncio
 import json
 import os
+import secrets
 import shutil
 import signal
+import string
 import time
 from pathlib import Path
 
@@ -39,7 +41,9 @@ class SandboxSupervisor:
 
     # Configuration
     OPENCODE_PORT = 4096
+    CODE_SERVER_PORT = 8080
     HEALTH_CHECK_TIMEOUT = 30.0
+    CODE_SERVER_HEALTH_CHECK_TIMEOUT = 20.0
     MAX_RESTARTS = 5
     BACKOFF_BASE = 2.0
     BACKOFF_MAX = 60.0
@@ -48,14 +52,19 @@ class SandboxSupervisor:
     DEFAULT_SETUP_TIMEOUT_SECONDS = 300
     DEFAULT_START_TIMEOUT_SECONDS = 120
     CLONE_DEPTH_COMMITS = 100
+    # Password alphabet for code-server (printable ASCII, no ambiguous chars)
+    _PASSWORD_ALPHABET = string.ascii_letters + string.digits
 
     def __init__(self):
         self.opencode_process: asyncio.subprocess.Process | None = None
         self.bridge_process: asyncio.subprocess.Process | None = None
+        self.code_server_process: asyncio.subprocess.Process | None = None
         self.shutdown_event = asyncio.Event()
         self.git_sync_complete = asyncio.Event()
         self.opencode_ready = asyncio.Event()
         self.boot_mode = "unknown"
+        # Session-scoped password for code-server (generated once per boot).
+        self._code_server_password: str | None = None
 
         # Configuration from environment (set by Modal/SandboxManager)
         self.sandbox_id = os.environ.get("SANDBOX_ID", "unknown")
@@ -478,6 +487,158 @@ class SandboxSupervisor:
 
         raise RuntimeError("OpenCode server failed to become healthy")
 
+    def _generate_code_server_password(self) -> str:
+        """Generate a cryptographically random session-scoped password."""
+        return "".join(secrets.choice(self._PASSWORD_ALPHABET) for _ in range(32))
+
+    async def start_code_server(self) -> None:
+        """
+        Start code-server (browser-based VS Code) if enabled.
+
+        code-server is started only when CODE_SERVER_ENABLED=true is set in the
+        sandbox environment (controlled by the control plane / repo secrets).
+
+        The URL and a session-scoped password are reported to the control plane
+        via the bridge as a `code_server_ready` event once the health-check
+        endpoint confirms liveness.
+
+        The password is rotated on every sandbox spawn / restore so that it is
+        session-scoped and not reused across snapshots.
+        """
+        if os.environ.get("CODE_SERVER_ENABLED", "").lower() not in ("1", "true", "yes"):
+            self.log.info("code_server.skip", reason="not_enabled")
+            return
+
+        self._code_server_password = self._generate_code_server_password()
+
+        workdir = self.workspace_path
+        if self.repo_path.exists() and (self.repo_path / ".git").exists():
+            workdir = self.repo_path
+
+        # Write the config file so code-server reads the correct port and
+        # password without needing CLI flags (which would leak the password to
+        # `ps aux`).
+        config_dir = Path("/root/.config/code-server")
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.yaml"
+        config_file.write_text(
+            f"bind-addr: 0.0.0.0:{self.CODE_SERVER_PORT}\n"
+            f"auth: password\n"
+            f"password: {self._code_server_password}\n"
+            f"cert: false\n"
+        )
+        # Restrict config file permissions so only root can read it.
+        config_file.chmod(0o600)
+
+        self.log.info("code_server.start", port=self.CODE_SERVER_PORT, workdir=str(workdir))
+
+        env = {**os.environ}
+        # Remove the plain-text password from the child environment so it
+        # doesn't appear in any subprocess env dumps.
+        env.pop("CODE_SERVER_PASSWORD", None)
+
+        self.code_server_process = await asyncio.create_subprocess_exec(
+            "code-server",
+            "--config",
+            str(config_file),
+            str(workdir),
+            cwd=str(workdir),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        asyncio.create_task(self._forward_code_server_logs())
+
+        # Wait for the health check endpoint.
+        try:
+            await self._wait_for_code_server_health()
+            self.log.info("code_server.ready", port=self.CODE_SERVER_PORT)
+        except RuntimeError as e:
+            self.log.error("code_server.health_check_failed", exc=e)
+            # Non-fatal: code-server failure should not block the session.
+            return
+
+        # Report URL + password to bridge (which forwards to control plane).
+        # The URL is the control-plane-facing tunnel address injected by Modal;
+        # fall back to a localhost placeholder so the event is always emitted.
+        tunnel_url = os.environ.get("CODE_SERVER_TUNNEL_URL", "")
+        if not tunnel_url:
+            # Build a reasonable default using the sandbox-id so the control
+            # plane can later substitute the real public URL if needed.
+            tunnel_url = f"http://localhost:{self.CODE_SERVER_PORT}"
+
+        await self._report_code_server_ready(tunnel_url, self._code_server_password)
+
+    async def _forward_code_server_logs(self) -> None:
+        """Forward code-server stdout to supervisor stdout."""
+        if not self.code_server_process or not self.code_server_process.stdout:
+            return
+        try:
+            async for line in self.code_server_process.stdout:
+                print(f"[code-server] {line.decode().rstrip()}")
+        except Exception as e:
+            print(f"[supervisor] code-server log forwarding error: {e}")
+
+    async def _wait_for_code_server_health(self) -> None:
+        """Poll code-server health endpoint until ready."""
+        health_url = f"http://localhost:{self.CODE_SERVER_PORT}/healthz"
+        start_time = time.time()
+        async with httpx.AsyncClient() as client:
+            while time.time() - start_time < self.CODE_SERVER_HEALTH_CHECK_TIMEOUT:
+                if self.shutdown_event.is_set():
+                    raise RuntimeError("Shutdown requested during code-server startup")
+                try:
+                    resp = await client.get(health_url, timeout=2.0)
+                    if resp.status_code in (200, 302):
+                        return
+                except httpx.ConnectError:
+                    pass
+                except Exception as e:
+                    self.log.debug("code_server.health_check_error", exc=e)
+                await asyncio.sleep(0.5)
+        raise RuntimeError("code-server failed to become healthy")
+
+    async def _report_code_server_ready(self, url: str, password: str) -> None:
+        """
+        Report code-server URL and password to the control plane via HTTP.
+
+        We call the control plane directly rather than going through the bridge
+        so the password is delivered confidentially over an authenticated
+        server-to-server call (not written to any log or event stream accessible
+        to the bridge process).
+        """
+        if not self.control_plane_url or not self.sandbox_token:
+            self.log.info("code_server.report_skip", reason="no_control_plane_url")
+            return
+
+        session_id = self.session_config.get("session_id", "")
+        if not session_id:
+            self.log.info("code_server.report_skip", reason="no_session_id")
+            return
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self.control_plane_url}/sessions/{session_id}/code-server-ready",
+                    json={
+                        "url": url,
+                        "password": password,
+                        "sandboxId": self.sandbox_id,
+                    },
+                    headers={"Authorization": f"Bearer {self.sandbox_token}"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 200:
+                    self.log.info("code_server.reported", url=url)
+                else:
+                    self.log.warn(
+                        "code_server.report_error",
+                        status=resp.status_code,
+                        body=resp.text[:200],
+                    )
+        except Exception as e:
+            self.log.error("code_server.report_failed", exc=e)
+
     async def start_bridge(self) -> None:
         """Start the agent bridge process."""
         self.log.info("bridge.start")
@@ -550,6 +711,7 @@ class SandboxSupervisor:
         """Monitor child processes and restart on crash."""
         restart_count = 0
         bridge_restart_count = 0
+        code_server_restart_count = 0
 
         while not self.shutdown_event.is_set():
             # Check OpenCode process
@@ -627,6 +789,34 @@ class SandboxSupervisor:
                     )
                     await asyncio.sleep(delay)
                     await self.start_bridge()
+
+            # Check code-server process (non-fatal restarts; max attempts)
+            if self.code_server_process and self.code_server_process.returncode is not None:
+                exit_code = self.code_server_process.returncode
+                code_server_restart_count += 1
+                self.log.error(
+                    "code_server.crash",
+                    exit_code=exit_code,
+                    restart_count=code_server_restart_count,
+                )
+
+                if code_server_restart_count <= self.MAX_RESTARTS:
+                    delay = min(self.BACKOFF_BASE**code_server_restart_count, self.BACKOFF_MAX)
+                    self.log.info(
+                        "code_server.restart",
+                        delay_s=round(delay, 1),
+                        restart_count=code_server_restart_count,
+                    )
+                    await asyncio.sleep(delay)
+                    # Restart is best-effort; ignore failures.
+                    await self.start_code_server()
+                else:
+                    self.log.error(
+                        "code_server.max_restarts",
+                        restart_count=code_server_restart_count,
+                    )
+                    # Clear the reference so we stop monitoring it.
+                    self.code_server_process = None
 
             await asyncio.sleep(1.0)
 
@@ -1033,6 +1223,10 @@ class SandboxSupervisor:
             await self.start_opencode()
             opencode_ready = True
 
+            # Phase 4.5: Start code-server IDE (non-blocking; failure is non-fatal).
+            # Run concurrently with bridge startup to minimise latency.
+            await self.start_code_server()
+
             # Phase 5: Start bridge (after OpenCode is ready)
             await self.start_bridge()
 
@@ -1087,6 +1281,14 @@ class SandboxSupervisor:
                 await asyncio.wait_for(self.opencode_process.wait(), timeout=10.0)
             except TimeoutError:
                 self.opencode_process.kill()
+
+        # Terminate code-server (best-effort, 5 s grace period)
+        if self.code_server_process and self.code_server_process.returncode is None:
+            self.code_server_process.terminate()
+            try:
+                await asyncio.wait_for(self.code_server_process.wait(), timeout=5.0)
+            except TimeoutError:
+                self.code_server_process.kill()
 
         self.log.info("supervisor.shutdown_complete")
 

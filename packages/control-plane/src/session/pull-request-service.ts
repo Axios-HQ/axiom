@@ -18,7 +18,10 @@ export interface CreatePullRequestInput {
   body: string;
   baseBranch?: string;
   headBranch?: string;
+  draft?: boolean;
   promptingUserId: string;
+  promptingScmLogin?: string | null;
+  promptingScmName?: string | null;
   promptingAuth: SourceControlAuthContext | null;
   sessionUrl: string;
 }
@@ -29,6 +32,8 @@ export type CreatePullRequestResult =
       prNumber: number;
       prUrl: string;
       state: "open" | "closed" | "merged" | "draft";
+      authMode: "oauth" | "app";
+      oauthSignInRequired: boolean;
     }
   | { kind: "error"; status: number; error: string };
 
@@ -73,6 +78,18 @@ export interface PullRequestServiceDeps {
  */
 export class SessionPullRequestService {
   constructor(private readonly deps: PullRequestServiceDeps) {}
+
+  private formatRequesterIdentity(input: CreatePullRequestInput): string {
+    if (input.promptingScmLogin && input.promptingScmLogin.trim().length > 0) {
+      return `@${input.promptingScmLogin.trim()}`;
+    }
+
+    if (input.promptingScmName && input.promptingScmName.trim().length > 0) {
+      return input.promptingScmName.trim();
+    }
+
+    return input.promptingUserId;
+  }
 
   /**
    * Creates a pull request when OAuth auth is available, or falls back
@@ -173,7 +190,15 @@ export class SessionPullRequestService {
       // (e.g. sessions triggered from Linear or other integrations without user GitHub OAuth)
       const prAuth = input.promptingAuth ?? appAuth;
 
-      const fullBody = input.body + `\n\n---\n*Created with [Open-Inspect](${input.sessionUrl})*`;
+      const requesterIdentity = this.formatRequesterIdentity(input);
+      const fullBody =
+        input.body +
+        `\n\n---\nRequested by ${requesterIdentity}\n\n*Created with [Open-Inspect](${input.sessionUrl})*`;
+
+      const reviewers =
+        prAuth.authType === "app" && input.promptingScmLogin
+          ? [input.promptingScmLogin]
+          : undefined;
 
       const prResult = await this.deps.sourceControlProvider.createPullRequest(prAuth, {
         repository: repoInfo,
@@ -181,10 +206,21 @@ export class SessionPullRequestService {
         body: fullBody,
         sourceBranch: headBranch,
         targetBranch: baseBranch,
+        draft: input.draft,
+        reviewers,
       });
 
       const artifactId = this.deps.generateId();
       const now = Date.now();
+      if (prAuth.authType !== "oauth" && prAuth.authType !== "app") {
+        return {
+          kind: "error",
+          status: 500,
+          error: `Unexpected auth type: ${String(prAuth.authType)}`,
+        };
+      }
+      const authMode: "oauth" | "app" = prAuth.authType;
+      const oauthSignInRequired = authMode === "app";
       this.deps.repository.createArtifact({
         id: artifactId,
         type: "pr",
@@ -194,6 +230,8 @@ export class SessionPullRequestService {
           state: prResult.state,
           head: headBranch,
           base: baseBranch,
+          authMode,
+          oauthSignInRequired,
         }),
         createdAt: now,
       });
@@ -210,6 +248,8 @@ export class SessionPullRequestService {
         prNumber: prResult.id,
         prUrl: prResult.webUrl,
         state: prResult.state,
+        authMode,
+        oauthSignInRequired,
       };
     } catch (error) {
       this.deps.log.error("PR creation failed", {

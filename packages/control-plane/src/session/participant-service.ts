@@ -396,8 +396,8 @@ export class ParticipantService {
    *
    * Returns:
    * - `{ auth: SourceControlAuthContext }` on success
-   * - `{ auth: null }` when user has no OAuth token (caller falls back to manual flow)
-   * - `{ error, status }` on failure (token expired and refresh failed, or decryption error)
+   * - `{ auth: null }` when user has no usable OAuth token (caller falls back to app auth)
+   * - `{ error, status }` on failure (decryption error)
    */
   async resolveAuthForPR(
     participant: ParticipantRow
@@ -408,10 +408,37 @@ export class ParticipantService {
     let resolvedParticipant = participant;
 
     if (!resolvedParticipant.scm_access_token_encrypted) {
-      this.log.info("PR creation: prompting user has no OAuth token, using manual fallback", {
-        user_id: resolvedParticipant.user_id,
-      });
-      return { auth: null };
+      if (this.userScmTokenStore && resolvedParticipant.scm_user_id) {
+        try {
+          const d1Tokens = await this.userScmTokenStore.getTokens(resolvedParticipant.scm_user_id);
+          if (d1Tokens) {
+            await this.updateLocalTokensFromD1(resolvedParticipant.id, d1Tokens);
+            const refreshedParticipant = this.repository.getParticipantById(resolvedParticipant.id);
+            if (refreshedParticipant) {
+              resolvedParticipant = refreshedParticipant;
+              this.log.info("PR creation: loaded OAuth token from D1 token store", {
+                user_id: resolvedParticipant.user_id,
+                scm_user_id: resolvedParticipant.scm_user_id,
+              });
+            }
+          }
+        } catch (error) {
+          this.log.warn("PR creation: failed to load OAuth token from D1 token store", {
+            user_id: resolvedParticipant.user_id,
+            scm_user_id: resolvedParticipant.scm_user_id,
+            error: error instanceof Error ? error : String(error),
+          });
+        }
+      }
+
+      if (resolvedParticipant.scm_access_token_encrypted) {
+        // Continue through normal expiry/decrypt flow below.
+      } else {
+        this.log.info("PR creation: prompting user has no OAuth token, using manual fallback", {
+          user_id: resolvedParticipant.user_id,
+        });
+        return { auth: null };
+      }
     }
 
     if (this.isScmTokenExpired(resolvedParticipant)) {
@@ -423,14 +450,10 @@ export class ParticipantService {
       if (refreshed) {
         resolvedParticipant = refreshed;
       } else {
-        this.log.warn("SCM token refresh failed, returning auth error", {
+        this.log.warn("SCM token refresh failed, falling back to app auth for PR creation", {
           user_id: resolvedParticipant.user_id,
         });
-        return {
-          error:
-            "Your source control token has expired and could not be refreshed. Please re-authenticate.",
-          status: 401,
-        };
+        return { auth: null };
       }
     }
 

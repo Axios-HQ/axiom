@@ -68,7 +68,7 @@ export class UserScmTokenStore {
            refresh_token_encrypted = excluded.refresh_token_encrypted,
            token_expires_at = excluded.token_expires_at,
            updated_at = excluded.updated_at
-         WHERE excluded.token_expires_at > user_scm_tokens.token_expires_at`
+         WHERE excluded.token_expires_at >= user_scm_tokens.token_expires_at`
       )
       .bind(providerUserId, accessTokenEncrypted, refreshTokenEncrypted, expiresAt, now, now)
       .run();

@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import type { Env, CompletionCallback, AgentUpdateCallback } from "./types";
+import type { Env, CompletionCallback, UpdateCallback } from "./types";
 import { extractAgentResponse } from "./completion/extractor";
 import { buildCompletionBlocks, getFallbackText } from "./completion/blocks";
 import { postMessage, removeReaction } from "./utils/slack-client";
@@ -41,7 +41,7 @@ async function clearThinkingReaction(
  * Prevents external callers from forging completion callbacks.
  */
 async function verifyCallbackSignature(
-  payload: CompletionCallback | AgentUpdateCallback,
+  payload: CompletionCallback | UpdateCallback,
   secret: string
 ): Promise<boolean> {
   const { signature, ...data } = payload;
@@ -151,34 +151,35 @@ callbacksRouter.post("/complete", async (c) => {
 });
 
 /**
- * Callback endpoint for mid-session agent updates (screenshots, progress).
+ * Callback endpoint for agent progress update notifications.
  */
-callbacksRouter.post("/agent-update", async (c) => {
-  const startTime = Date.now();
-  const traceId = c.req.header("x-trace-id") || crypto.randomUUID();
+function isValidUpdatePayload(payload: unknown): payload is UpdateCallback {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  if (
+    typeof p.sessionId !== "string" ||
+    typeof p.messageId !== "string" ||
+    typeof p.message !== "string" ||
+    typeof p.timestamp !== "number" ||
+    typeof p.signature !== "string"
+  )
+    return false;
+  if (
+    p.screenshotUrl !== null &&
+    p.screenshotUrl !== undefined &&
+    typeof p.screenshotUrl !== "string"
+  )
+    return false;
+  const ctx = p.context;
+  if (!ctx || typeof ctx !== "object") return false;
+  const c2 = ctx as Record<string, unknown>;
+  return typeof c2.channel === "string" && typeof c2.threadTs === "string";
+}
+
+callbacksRouter.post("/update", async (c) => {
   const payload = await c.req.json();
 
-  // Validate payload
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    typeof payload.sessionId !== "string" ||
-    typeof payload.message !== "string" ||
-    typeof payload.timestamp !== "number" ||
-    typeof payload.signature !== "string" ||
-    !payload.context ||
-    typeof payload.context !== "object" ||
-    typeof payload.context.channel !== "string"
-  ) {
-    log.warn("http.request", {
-      trace_id: traceId,
-      http_method: "POST",
-      http_path: "/callbacks/agent-update",
-      http_status: 400,
-      outcome: "rejected",
-      reject_reason: "invalid_payload",
-      duration_ms: Date.now() - startTime,
-    });
+  if (!isValidUpdatePayload(payload)) {
     return c.json({ error: "invalid payload" }, 400);
   }
 
@@ -186,86 +187,42 @@ callbacksRouter.post("/agent-update", async (c) => {
     return c.json({ error: "not configured" }, 500);
   }
 
-  const isValid = await verifyCallbackSignature(
-    payload as AgentUpdateCallback,
-    c.env.INTERNAL_CALLBACK_SECRET
-  );
+  const isValid = await verifyCallbackSignature(payload, c.env.INTERNAL_CALLBACK_SECRET);
   if (!isValid) {
-    log.warn("http.request", {
-      trace_id: traceId,
-      http_method: "POST",
-      http_path: "/callbacks/agent-update",
-      http_status: 401,
-      outcome: "rejected",
-      reject_reason: "invalid_signature",
-      session_id: payload.sessionId,
-      duration_ms: Date.now() - startTime,
-    });
     return c.json({ error: "unauthorized" }, 401);
   }
 
-  // Process in background
+  const { context, message, screenshotUrl } = payload;
+
+  const blocks: unknown[] = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: message },
+    },
+  ];
+
+  if (screenshotUrl) {
+    blocks.push({
+      type: "image",
+      image_url: screenshotUrl,
+      alt_text: "Agent screenshot",
+    });
+  }
+
   c.executionCtx.waitUntil(
-    handleAgentUpdateCallback(payload as AgentUpdateCallback, c.env, traceId)
+    postMessage(c.env.SLACK_BOT_TOKEN, context.channel, message, {
+      thread_ts: context.threadTs,
+      blocks,
+    }).catch((err) => {
+      log.error("callback.update.post_failed", {
+        session_id: payload.sessionId,
+        error: err instanceof Error ? err : String(err),
+      });
+    })
   );
 
   return c.json({ ok: true });
 });
-
-/**
- * Handle agent update callback - post screenshot/progress to Slack thread.
- */
-async function handleAgentUpdateCallback(
-  payload: AgentUpdateCallback,
-  env: Env,
-  traceId?: string
-): Promise<void> {
-  const startTime = Date.now();
-  const { context } = payload;
-
-  try {
-    const blocks: Array<Record<string, unknown>> = [];
-
-    // Add message text
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `\u{1F4F8} *Agent update:*\n${payload.message}`,
-      },
-    });
-
-    // Add screenshot image if present
-    if (payload.screenshotUrl) {
-      blocks.push({
-        type: "image",
-        image_url: payload.screenshotUrl,
-        alt_text: "Screenshot",
-      });
-    }
-
-    await postMessage(env.SLACK_BOT_TOKEN, context.channel, payload.message, {
-      thread_ts: context.threadTs,
-      blocks,
-    });
-
-    log.info("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      has_screenshot: Boolean(payload.screenshotUrl),
-      outcome: "success",
-      duration_ms: Date.now() - startTime,
-    });
-  } catch (error) {
-    log.error("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      outcome: "error",
-      error: error instanceof Error ? error : new Error(String(error)),
-      duration_ms: Date.now() - startTime,
-    });
-  }
-}
 
 /**
  * Handle completion callback - fetch events and post to Slack.

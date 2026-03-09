@@ -18,6 +18,9 @@ const VALID_EVENT_TYPES = [
   "push_complete",
   "push_error",
   "user_message",
+  "agent_update",
+  "code_server_ready",
+  "preview_url",
 ] as const;
 
 /**

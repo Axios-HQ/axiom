@@ -500,11 +500,15 @@ Your GitHub App's bot username is its slug with `[bot]` appended. You can find i
 Or construct it from your App's slug: if your app is named `My-Inspect-App`, the bot username is
 `my-inspect-app[bot]`. Ensure this matches the `github_bot_username` value in your terraform.tfvars.
 
+> **Mention format note**: In GitHub comments, use `@my-inspect-app` (slug form) when mentioning the
+> bot. Some UIs may not autocomplete or accept the `[bot]` suffix form. Open-Inspect accepts either
+> mention style.
+
 ### Usage
 
 - **Code Review**: Assign the bot as a PR reviewer — it performs an automated review
 - **Comment Actions**: @mention the bot in a PR comment with instructions (e.g.,
-  `@my-app[bot] fix the failing test`)
+  `@my-app fix the failing test`)
 
 ---
 
@@ -746,6 +750,12 @@ If the bot doesn't see the original message when tagged in a thread reply:
 4. Check that `github_bot_username` matches your App's bot login (e.g., `my-app[bot]`)
 5. For PR reviews, ensure the bot is assigned as a reviewer (not just mentioned)
 6. For comment actions, ensure the bot is @mentioned in a **PR** comment (not an issue)
+7. If you use GitHub bot integration settings, verify scope/gating:
+   - Repo scope set to "Selected repositories" must include this repo
+   - If `allowedTriggerUsers` is configured, the commenter must be in that list
+   - If `allowedTriggerUsers` is not configured, the commenter must have write/maintain/admin repo
+     permission
+8. For mentions, prefer `@your-app-slug` if `@your-app-slug[bot]` does not autocomplete
 
 ### Durable Objects / Service Binding errors
 
@@ -753,6 +763,39 @@ This occurs on first deployment. Follow the two-phase deployment process:
 
 1. Deploy with `enable_durable_object_bindings = false` and `enable_service_bindings = false`
 2. After success, set both to `true` and run `terraform apply` again
+
+### Link Slack/Linear users to GitHub for PR attribution
+
+When sessions are triggered from Slack or Linear, Open-Inspect can map those external user IDs to a
+GitHub identity. This enables better PR attribution (requester footer, reviewer request, and user
+OAuth reuse when available).
+
+Use the web API (authenticated as the GitHub user):
+
+```bash
+# Link a Linear user ID to your GitHub account
+curl -X POST "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"linear","externalUserId":"<linear-app-user-id>"}'
+
+# Link a Slack user ID to your GitHub account
+curl -X POST "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"slack","externalUserId":"U01234567"}'
+
+# List your links
+curl "$WEB_URL/api/identity-links" -b "<your-session-cookie>"
+
+# Remove a link
+curl -X DELETE "$WEB_URL/api/identity-links" \
+  -H "Content-Type: application/json" \
+  -b "<your-session-cookie>" \
+  -d '{"provider":"slack","externalUserId":"U01234567"}'
+```
+
+For Linear webhooks, the `externalUserId` should be the `appUserId` from the webhook payload.
 
 ---
 

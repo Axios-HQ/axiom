@@ -62,12 +62,15 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-8">
         <img src="/axiom-logo.svg" alt="Axiom" className="w-80 mb-2" />
-        <p className="text-muted-foreground max-w-md text-center">
-          Background AI agent for Axios HQ. Optimize. Refactor. Ship.
-        </p>
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-foreground mb-2">Axiom</h1>
+          <p className="text-muted-foreground max-w-md">
+            Background AI agent for Axios HQ. Optimize. Refactor. Ship.
+          </p>
+        </div>
         <button
           onClick={() => signIn.social({ provider: "github" })}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 font-medium hover:opacity-90 transition"
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded font-medium hover:opacity-90 transition"
         >
           <GitHubIcon className="w-5 h-5" />
           Sign in with GitHub

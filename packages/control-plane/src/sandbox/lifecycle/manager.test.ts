@@ -103,6 +103,22 @@ function createMockStorage(
       calls.push("getSession");
       return session;
     }),
+    getSessionRepos: vi.fn(() => {
+      calls.push("getSessionRepos");
+      if (!session) {
+        return [];
+      }
+      return [
+        {
+          repoOwner: session.repo_owner,
+          repoName: session.repo_name,
+          repoId: session.repo_id,
+          order: 0,
+          isPrimary: true,
+          isEditable: true,
+        },
+      ];
+    }),
     getUserEnvVars: vi.fn(async () => {
       calls.push("getUserEnvVars");
       return userEnvVars;

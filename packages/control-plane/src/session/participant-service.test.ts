@@ -586,7 +586,7 @@ describe("ParticipantService", () => {
       );
     });
 
-    it("returns error when token expired and no refresh token", async () => {
+    it("falls back to app auth when token expired and refresh fails", async () => {
       const participant = createParticipant({
         scm_access_token_encrypted: "enc:encrypted-access",
         scm_refresh_token_encrypted: null,
@@ -595,7 +595,50 @@ describe("ParticipantService", () => {
 
       const result = await harness.service.resolveAuthForPR(participant);
 
-      expect(result).toEqual(expect.objectContaining({ error: expect.any(String), status: 401 }));
+      expect(result).toEqual({ auth: null });
+      expect(harness.log.warn).toHaveBeenCalledWith(
+        "SCM token refresh failed, falling back to app auth for PR creation",
+        expect.any(Object)
+      );
+    });
+
+    it("loads OAuth token from D1 when local token is missing", async () => {
+      const mockStore = createMockUserScmTokenStore();
+      const h = createTestHarness({ userScmTokenStore: mockStore.store });
+      const participant = createParticipant({
+        id: "part-1",
+        scm_user_id: "gh-123",
+        scm_access_token_encrypted: null,
+      });
+
+      mockStore.getTokens.mockResolvedValue({
+        accessToken: "fresh-access",
+        refreshToken: "fresh-refresh",
+        expiresAt: Date.now() + 3600_000,
+        refreshTokenEncrypted: "enc:fresh-refresh",
+      });
+
+      vi.mocked(h.repository.getParticipantById).mockReturnValue(
+        createParticipant({
+          id: "part-1",
+          scm_user_id: "gh-123",
+          scm_access_token_encrypted: "enc:fresh-access",
+          scm_refresh_token_encrypted: "enc:fresh-refresh",
+          scm_token_expires_at: Date.now() + 3600_000,
+        })
+      );
+
+      const result = await h.service.resolveAuthForPR(participant);
+
+      expect(result).toEqual({ auth: { authType: "oauth", token: "fresh-access" } });
+      expect(mockStore.getTokens).toHaveBeenCalledWith("gh-123");
+      expect(h.repository.updateParticipantTokens).toHaveBeenCalledWith(
+        "part-1",
+        expect.objectContaining({
+          scmAccessTokenEncrypted: "enc:fresh-access",
+          scmRefreshTokenEncrypted: "enc:fresh-refresh",
+        })
+      );
     });
   });
 });

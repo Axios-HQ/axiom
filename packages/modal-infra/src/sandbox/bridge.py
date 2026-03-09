@@ -630,7 +630,7 @@ class AgentBridge:
             had_error = False
             error_message = None
             async for event in self._stream_opencode_response_sse(
-                message_id, content, model, reasoning_effort
+                message_id, content, model, reasoning_effort, attachments
             ):
                 if event.get("type") == "error":
                     had_error = True
@@ -771,12 +771,40 @@ class AgentBridge:
     }
     ANTHROPIC_ADAPTIVE_EFFORTS: ClassVar[set[str]] = {"low", "medium", "high", "max"}
 
+    def _build_repo_scope_preamble(self) -> str:
+        session_repos = getattr(self, "session_config", {}).get("session_repos")
+        if not isinstance(session_repos, list) or len(session_repos) == 0:
+            return ""
+
+        lines = [
+            "Repository scope for this session:",
+            "- Use only repositories listed below.",
+            "- You may edit only repositories marked editable.",
+        ]
+
+        for repo in session_repos:
+            if not isinstance(repo, dict):
+                continue
+            owner = str(repo.get("repoOwner") or repo.get("repo_owner") or "").strip()
+            name = str(repo.get("repoName") or repo.get("repo_name") or "").strip()
+            if not owner or not name:
+                continue
+            role = "primary" if bool(repo.get("isPrimary")) else "secondary"
+            mode = "editable" if bool(repo.get("isEditable")) else "read-only"
+            lines.append(f"- {owner}/{name} ({role}, {mode})")
+
+        if len(lines) <= 3:
+            return ""
+
+        return "\n".join(lines) + "\n\n"
+
     def _build_prompt_request_body(
         self,
         content: str,
         model: str | None,
         opencode_message_id: str | None = None,
         reasoning_effort: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Build request body for OpenCode prompt requests.
 
@@ -787,8 +815,26 @@ class AgentBridge:
                                  When provided, OpenCode uses this as the user message ID,
                                  and assistant responses will have parentID pointing to it.
             reasoning_effort: Optional reasoning effort level (e.g., "high", "max")
+            attachments: Optional list of file/image attachments with R2 URLs
         """
-        request_body: dict[str, Any] = {"parts": [{"type": "text", "text": content}]}
+        content_with_scope = self._build_repo_scope_preamble() + content
+        parts: list[dict[str, Any]] = [{"type": "text", "text": content_with_scope}]
+
+        if isinstance(attachments, list):
+            for att in attachments:
+                if not isinstance(att, dict):
+                    continue
+                mime = att.get("mimeType", "application/octet-stream")
+                name = att.get("name", "attachment")
+                url = att.get("url", "")
+                if not isinstance(url, str) or not url:
+                    continue
+                # Only allow http(s) URLs
+                if not url.startswith("https://") and not url.startswith("http://"):
+                    continue
+                parts.append({"type": "file", "mime": mime, "url": url, "filename": name})
+
+        request_body: dict[str, Any] = {"parts": parts}
 
         if opencode_message_id:
             request_body["messageID"] = opencode_message_id
@@ -879,6 +925,7 @@ class AgentBridge:
         content: str,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream response from OpenCode using Server-Sent Events.
 
@@ -899,7 +946,7 @@ class AgentBridge:
 
         opencode_message_id = OpenCodeIdentifier.ascending("message")
         request_body = self._build_prompt_request_body(
-            content, model, opencode_message_id, reasoning_effort
+            content, model, opencode_message_id, reasoning_effort, attachments
         )
 
         sse_url = f"{self.opencode_base_url}/event"

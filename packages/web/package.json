@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "agent:login": "tsx scripts/agent-login.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.5.4",

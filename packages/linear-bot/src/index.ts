@@ -14,7 +14,7 @@ import {
 } from "./utils/linear-client";
 import { callbacksRouter } from "./callbacks";
 import { createLogger } from "./logger";
-import { verifyInternalToken } from "@open-inspect/shared";
+import { generateInternalToken, verifyInternalToken } from "@open-inspect/shared";
 import { handleAgentSessionEvent, escapeHtml } from "./webhook-handler";
 import {
   getTeamRepoMapping,
@@ -80,6 +80,36 @@ app.get("/oauth/callback", async (c) => {
 
   try {
     const { orgName } = await exchangeCodeForToken(c.env, code);
+
+    c.executionCtx.waitUntil(
+      (async () => {
+        if (!c.env.INTERNAL_CALLBACK_SECRET) {
+          return;
+        }
+
+        try {
+          const token = await generateInternalToken(c.env.INTERNAL_CALLBACK_SECRET);
+          const response = await c.env.CONTROL_PLANE.fetch("https://internal/identity-links/sync", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ mode: "apply", domain: "axioshq.com" }),
+          });
+          if (!response.ok) {
+            log.warn("identity_sync.trigger_non_ok", {
+              status: response.status,
+            });
+          }
+        } catch (error) {
+          log.warn("identity_sync.trigger_failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })()
+    );
+
     return c.html(`
       <html>
         <head><title>OAuth Success</title></head>

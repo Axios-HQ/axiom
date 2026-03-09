@@ -1,8 +1,8 @@
 /**
  * Media upload/download routes.
  *
- * POST /sessions/:id/media/upload — upload binary content to R2, returns { key, url }
- * GET  /api/media/:key            — proxy R2 object with cache headers
+ * POST /api/media/upload — upload binary content to R2, returns { key, url }
+ * GET  /api/media/:key   — proxy R2 object with cache headers
  */
 
 import { R2MediaService } from "../media/r2-media-service";
@@ -19,6 +19,7 @@ const ALLOWED_UPLOAD_TYPES = new Set([
   "image/jpeg",
   "image/gif",
   "image/webp",
+  "image/svg+xml",
   "application/pdf",
   "text/plain",
   "application/json",
@@ -32,7 +33,7 @@ function getMediaService(env: Env): R2MediaService | null {
 async function handleUpload(
   request: Request,
   env: Env,
-  match: RegExpMatchArray,
+  _match: RegExpMatchArray,
   ctx: RequestContext
 ): Promise<Response> {
   const media = getMediaService(env);
@@ -42,7 +43,7 @@ async function handleUpload(
 
   const contentType = request.headers.get("content-type") ?? "application/octet-stream";
   const filename = request.headers.get("x-filename") ?? "upload";
-  const sessionId = match.groups?.id;
+  const sessionId = request.headers.get("x-session-id");
 
   // Enforce MIME allowlist
   const baseMime = contentType.split(";")[0].trim().toLowerCase();
@@ -127,7 +128,7 @@ async function handleDownload(
 export const mediaRoutes: Route[] = [
   {
     method: "POST",
-    pattern: parsePattern("/sessions/:id/media/upload"),
+    pattern: parsePattern("/api/media/upload"),
     handler: handleUpload,
   },
   {
@@ -143,6 +144,7 @@ function extFromMime(mime: string): string {
     "image/jpeg": ".jpg",
     "image/gif": ".gif",
     "image/webp": ".webp",
+    "image/svg+xml": ".svg",
     "application/pdf": ".pdf",
     "text/plain": ".txt",
     "application/json": ".json",

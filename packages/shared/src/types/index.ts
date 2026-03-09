@@ -39,10 +39,22 @@ export type EventType =
   | "artifact"
   | "push_complete"
   | "push_error"
-  | "user_message";
+  | "user_message"
+  | "agent_update"
+  | "code_server_ready"
+  | "preview_url";
 export type ParticipantRole = "owner" | "member";
 export type SpawnSource = "user" | "agent" | "automation";
 export type ConfidenceLevel = "high" | "medium" | "low";
+
+export interface SessionRepoScope {
+  repoOwner: string;
+  repoName: string;
+  repoId: number | null;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
+}
 
 // Participant in a session
 export interface SessionParticipant {
@@ -60,6 +72,7 @@ export interface Session {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  sessionRepos?: SessionRepoScope[];
   baseBranch: string;
   branchName: string | null;
   baseSha: string | null;
@@ -122,6 +135,30 @@ export interface ManualPullRequestArtifactMetadata {
   base: string;
   createPrUrl: string;
   provider?: string;
+}
+
+/**
+ * Metadata for preview URL artifacts.
+ * Supports multi-repo sessions where each preview is attributed to a repo.
+ */
+export interface PreviewArtifactMetadata {
+  /** Human-readable service name, e.g. "frontend", "api". */
+  label: string;
+  /** Repository this preview belongs to (owner/name). */
+  repo?: string;
+  /** Status of the service behind the URL. */
+  previewStatus: "active" | "outdated" | "stopped";
+  /** Unix timestamp of the last status update. */
+  updatedAt: number;
+}
+
+/**
+ * Metadata for code-server artifacts.
+ * The password is session-scoped and delivered only over the authenticated WS channel.
+ */
+export interface CodeServerArtifactMetadata {
+  /** Marks this artifact as a code-server link. */
+  kind: "code_server";
 }
 
 // Pull request info
@@ -238,6 +275,42 @@ export type SandboxEvent =
         name: string;
         avatar?: string;
       };
+    }
+  | {
+      type: "agent_update";
+      message: string;
+      screenshotUrl?: string;
+      sandboxId: string;
+      timestamp: number;
+    }
+  | {
+      /**
+       * Emitted when code-server starts and is reachable inside the sandbox.
+       * The url is an https tunnel URL. The password is session-scoped and
+       * must be treated as a secret — it is redacted before persistence.
+       */
+      type: "code_server_ready";
+      url: string;
+      /** Session-scoped password (redacted after delivery to clients). */
+      password: string;
+      sandboxId: string;
+      timestamp: number;
+    }
+  | {
+      /**
+       * Emitted when a running service publishes a preview URL.
+       * Multiple previews per session are supported; each has a unique label.
+       */
+      type: "preview_url";
+      url: string;
+      /** Human-readable service name, e.g. "frontend", "api". */
+      label: string;
+      /** Repo this preview belongs to (important for multi-repo sessions). */
+      repo?: string;
+      /** Status of the service behind the URL. */
+      status: "active" | "outdated" | "stopped";
+      sandboxId: string;
+      timestamp: number;
     };
 
 // WebSocket message types
@@ -283,7 +356,14 @@ export type ServerMessage =
   | { type: "sandbox_error"; error: string }
   | {
       type: "artifact_created";
-      artifact: { id: string; type: string; url: string; prNumber?: number };
+      artifact: {
+        id: string;
+        type: string;
+        url: string;
+        prNumber?: number;
+        metadata?: Record<string, unknown>;
+        createdAt?: number;
+      };
     }
   | { type: "snapshot_saved"; imageId: string; reason: string }
   | { type: "sandbox_restored"; message: string }
@@ -302,7 +382,17 @@ export type ServerMessage =
       status: SessionStatus;
       title: string | null;
     }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  | {
+      /**
+       * Sent to authenticated WebSocket clients when code-server becomes
+       * available.  The password is included here (over the authenticated WS
+       * channel) and is NOT stored in the event log to avoid credential leaks.
+       */
+      type: "code_server_ready";
+      url: string;
+      password: string;
+    };
 
 // Session state sent to clients
 export interface SessionState {
@@ -310,6 +400,7 @@ export interface SessionState {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  sessionRepos?: SessionRepoScope[];
   baseBranch: string;
   branchName: string | null;
   status: SessionStatus;
@@ -383,6 +474,16 @@ export interface ClassificationResult {
   reasoning: string;
   alternatives?: RepoConfig[];
   needsClarification: boolean;
+}
+
+/**
+ * Returns a deterministic (sorted) subset of repos for fallback classification.
+ * Used when LLM classification fails to provide a stable, reproducible result.
+ */
+export function getDeterministicAlternatives(repos: RepoConfig[]): RepoConfig[] {
+  return [...repos]
+    .sort((a, b) => (a.fullName < b.fullName ? -1 : a.fullName > b.fullName ? 1 : 0))
+    .slice(0, 5);
 }
 
 export interface EventResponse {
@@ -485,6 +586,12 @@ export type CallbackContext =
 export interface CreateSessionRequest {
   repoOwner: string;
   repoName: string;
+  sessionRepos?: Array<{
+    repoOwner: string;
+    repoName: string;
+    editable?: boolean;
+  }>;
+  allowSecondaryRepoEdit?: boolean;
   title?: string;
   model?: string;
   reasoningEffort?: string;
@@ -519,6 +626,7 @@ export interface SpawnContext {
   repoOwner: string;
   repoName: string;
   repoId: number | null;
+  sessionRepos?: SessionRepoScope[];
   model: string;
   reasoningEffort: string | null;
   owner: {

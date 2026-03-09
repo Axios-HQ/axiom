@@ -15,10 +15,16 @@ export interface Artifact {
     base?: string;
     provider?: string;
     filename?: string;
+    /** Status of a preview/code-server service. */
     previewStatus?: "active" | "outdated" | "stopped";
-    kind?: string;
+    /** Human-readable label for preview artifacts (e.g. "frontend", "code-server"). */
     label?: string;
+    /** Repo attribution for multi-repo sessions. */
     repo?: string;
+    /** Marks the artifact as a code-server link. */
+    kind?: "code_server";
+    /** Last update timestamp for preview artifacts. */
+    updatedAt?: number;
   };
   createdAt: number;
 }

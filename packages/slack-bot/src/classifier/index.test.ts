@@ -129,6 +129,7 @@ describe("RepoClassifier", () => {
     expect(result.needsClarification).toBe(true);
     expect(result.reasoning).toContain("structured model output");
     expect(result.alternatives).toHaveLength(2);
+    expect(result.alternatives?.map((repo) => repo.fullName)).toEqual(["acme/prod", "acme/web"]);
   });
 
   it("asks for clarification when tool output is missing", async () => {

@@ -4,7 +4,7 @@
  */
 
 import { Hono } from "hono";
-import type { Env, CompletionCallback, ToolCallCallback } from "./types";
+import type { Env, CompletionCallback, ToolCallCallback, UpdateCallback } from "./types";
 import {
   getLinearClient,
   emitAgentActivity,
@@ -246,35 +246,29 @@ callbacksRouter.post("/tool_call", async (c) => {
   return c.json({ ok: true });
 });
 
-// ─── Agent Update Callback ──────────────────────────────────────────────────
+// ─── Agent Update Callback ───────────────────────────────────────────────────
 
-/**
- * Callback endpoint for mid-session agent updates (screenshots, progress).
- */
-callbacksRouter.post("/agent-update", async (c) => {
-  const startTime = Date.now();
-  const traceId = c.req.header("x-trace-id") || crypto.randomUUID();
+export function isValidUpdatePayload(payload: unknown): payload is UpdateCallback {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  return (
+    typeof p.sessionId === "string" &&
+    typeof p.messageId === "string" &&
+    typeof p.message === "string" &&
+    (p.screenshotUrl === null ||
+      p.screenshotUrl === undefined ||
+      typeof p.screenshotUrl === "string") &&
+    typeof p.timestamp === "number" &&
+    typeof p.signature === "string" &&
+    p.context !== null &&
+    typeof p.context === "object"
+  );
+}
+
+callbacksRouter.post("/update", async (c) => {
   const payload = await c.req.json();
 
-  // Validate payload
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    typeof payload.sessionId !== "string" ||
-    typeof payload.message !== "string" ||
-    typeof payload.timestamp !== "number" ||
-    typeof payload.signature !== "string" ||
-    !payload.context ||
-    typeof payload.context !== "object"
-  ) {
-    log.warn("http.request", {
-      trace_id: traceId,
-      http_path: "/callbacks/agent-update",
-      http_status: 400,
-      outcome: "rejected",
-      reject_reason: "invalid_payload",
-      duration_ms: Date.now() - startTime,
-    });
+  if (!isValidUpdatePayload(payload)) {
     return c.json({ error: "invalid payload" }, 400);
   }
 
@@ -284,92 +278,40 @@ callbacksRouter.post("/agent-update", async (c) => {
 
   const isValid = await verifyCallbackSignature(payload, c.env.INTERNAL_CALLBACK_SECRET);
   if (!isValid) {
-    log.warn("http.request", {
-      trace_id: traceId,
-      http_path: "/callbacks/agent-update",
-      http_status: 401,
-      outcome: "rejected",
-      reject_reason: "invalid_signature",
-      session_id: payload.sessionId,
-      duration_ms: Date.now() - startTime,
-    });
     return c.json({ error: "unauthorized" }, 401);
   }
 
-  // Process in background
-  c.executionCtx.waitUntil(handleAgentUpdateCallback(payload, c.env, traceId));
+  c.executionCtx.waitUntil(
+    (async () => {
+      const { context, message, screenshotUrl } = payload;
+
+      if (!context.agentSessionId || !context.organizationId) return;
+
+      const client = await getLinearClient(c.env, context.organizationId);
+      if (!client) return;
+
+      const body = screenshotUrl ? `${message}\n\n![Screenshot](${screenshotUrl})` : message;
+
+      try {
+        await emitAgentActivity(client, context.agentSessionId, { type: "action", body }, true);
+        log.info("callback.update", {
+          session_id: payload.sessionId,
+          agent_session_id: context.agentSessionId,
+          outcome: "success",
+        });
+      } catch (e) {
+        log.warn("callback.update", {
+          session_id: payload.sessionId,
+          agent_session_id: context.agentSessionId,
+          outcome: "error",
+          error: e instanceof Error ? e : new Error(String(e)),
+        });
+      }
+    })()
+  );
 
   return c.json({ ok: true });
 });
-
-async function handleAgentUpdateCallback(
-  payload: {
-    sessionId: string;
-    message: string;
-    screenshotUrl?: string | null;
-    context: {
-      agentSessionId?: string;
-      organizationId?: string;
-      issueId?: string;
-    };
-  },
-  env: Env,
-  traceId?: string
-): Promise<void> {
-  const startTime = Date.now();
-  const { context } = payload;
-
-  if (!context.agentSessionId || !context.organizationId) {
-    log.debug("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      outcome: "skipped",
-      skip_reason: "missing_agent_context",
-      duration_ms: Date.now() - startTime,
-    });
-    return;
-  }
-
-  const client = await getLinearClient(env, context.organizationId);
-  if (!client) {
-    log.warn("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      outcome: "skipped",
-      skip_reason: "no_oauth_token",
-      duration_ms: Date.now() - startTime,
-    });
-    return;
-  }
-
-  try {
-    // Build activity body with optional screenshot
-    let body = payload.message;
-    if (payload.screenshotUrl) {
-      body += `\n\n![Screenshot](${payload.screenshotUrl})`;
-    }
-
-    await emitAgentActivity(client, context.agentSessionId, { type: "action", body }, true);
-
-    log.info("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      agent_session_id: context.agentSessionId,
-      has_screenshot: Boolean(payload.screenshotUrl),
-      outcome: "success",
-      duration_ms: Date.now() - startTime,
-    });
-  } catch (e) {
-    log.warn("callback.agent_update", {
-      trace_id: traceId,
-      session_id: payload.sessionId,
-      agent_session_id: context.agentSessionId,
-      outcome: "error",
-      error: e instanceof Error ? e : new Error(String(e)),
-      duration_ms: Date.now() - startTime,
-    });
-  }
-}
 
 // ─── Completion Callback ─────────────────────────────────────────────────────
 
@@ -414,13 +356,29 @@ async function handleCompletionCallback(
           plan: makePlan(payload.success ? "completed" : "failed"),
         });
 
-        // Update externalUrls with PR link if available
+        // Build externalUrls: always include session, plus PR and active previews.
         const prArtifact = agentResponse.artifacts.find((a) => a.type === "pr" && a.url);
-        if (prArtifact) {
-          const urls = [
+        const activePreviewArtifacts = agentResponse.artifacts.filter(
+          (a) =>
+            a.type === "preview" &&
+            a.url &&
+            (a.metadata as Record<string, unknown> | null | undefined)?.kind !== "code_server" &&
+            (a.metadata as Record<string, unknown> | null | undefined)?.previewStatus !== "stopped"
+        );
+
+        if (prArtifact || activePreviewArtifacts.length > 0) {
+          const urls: Array<{ label: string; url: string }> = [
             { label: "View Session", url: `${env.WEB_APP_URL}/session/${sessionId}` },
-            { label: "Pull Request", url: prArtifact.url },
           ];
+          if (prArtifact) {
+            urls.push({ label: "Pull Request", url: prArtifact.url });
+          }
+          for (const preview of activePreviewArtifacts) {
+            const meta = preview.metadata as Record<string, unknown> | null | undefined;
+            const label = meta?.label ? String(meta.label) : "Preview";
+            const repo = meta?.repo ? ` (${String(meta.repo)})` : "";
+            urls.push({ label: `${label}${repo}`, url: preview.url });
+          }
           await updateAgentSession(client, context.agentSessionId, { externalUrls: urls });
         }
 

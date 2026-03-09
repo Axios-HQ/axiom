@@ -7,6 +7,7 @@
 
 import type {
   SessionRow,
+  SessionRepoRow,
   ParticipantRow,
   MessageRow,
   EventRow,
@@ -71,6 +72,16 @@ export interface UpsertSessionData {
   spawnDepth?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface UpsertSessionRepoData {
+  id: string;
+  repoOwner: string;
+  repoName: string;
+  repoId: number | null;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
 }
 
 /**
@@ -271,6 +282,32 @@ export class SessionRepository {
       updatedAt,
       sessionId
     );
+  }
+
+  upsertSessionRepos(repos: UpsertSessionRepoData[]): void {
+    // Cloudflare DO SQLite prohibits manual BEGIN/COMMIT. Writes within a
+    // single request are coalesced atomically by the runtime, so the
+    // delete + inserts below are already effectively atomic.
+    this.sql.exec(`DELETE FROM session_repos`);
+
+    for (const repo of repos) {
+      this.sql.exec(
+        `INSERT INTO session_repos (id, repo_owner, repo_name, repo_id, order_index, is_primary, is_editable)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        repo.id,
+        repo.repoOwner,
+        repo.repoName,
+        repo.repoId,
+        repo.order,
+        repo.isPrimary ? 1 : 0,
+        repo.isEditable ? 1 : 0
+      );
+    }
+  }
+
+  listSessionRepos(): SessionRepoRow[] {
+    const result = this.sql.exec(`SELECT * FROM session_repos ORDER BY order_index ASC`);
+    return this.rows<SessionRepoRow>(result);
   }
 
   // === SANDBOX ===
@@ -730,6 +767,32 @@ export class SessionRepository {
   listArtifacts(): ArtifactRow[] {
     const result = this.sql.exec(`SELECT * FROM artifacts ORDER BY created_at DESC`);
     return this.rows<ArtifactRow>(result);
+  }
+
+  /**
+   * Upsert a preview artifact keyed on its label so that re-publishing the
+   * same service (same label) updates the existing artifact rather than
+   * creating a new one.  This keeps the artifact list clean in long-running
+   * multi-service sessions.
+   */
+  upsertPreviewArtifact(data: CreateArtifactData & { label: string; repo?: string }): ArtifactRow {
+    const repoPrefix = data.repo ? `${data.repo}:` : "";
+    const deterministicId = `preview:${repoPrefix}${data.label}`;
+    this.sql.exec(
+      `INSERT INTO artifacts (id, type, url, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         url      = excluded.url,
+         metadata = excluded.metadata,
+         created_at = excluded.created_at`,
+      deterministicId,
+      data.type,
+      data.url,
+      data.metadata,
+      data.createdAt
+    );
+    const result = this.sql.exec(`SELECT * FROM artifacts WHERE id = ?`, deterministicId);
+    return this.rows<ArtifactRow>(result)[0]!;
   }
 
   // === WS CLIENT MAPPING ===

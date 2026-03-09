@@ -217,6 +217,17 @@ For deployed control plane use `wss://...`, for local control plane use `ws://..
 
 Control plane cannot reach Modal (or Modal is not properly configured/deployed).
 
+### GitHub bot @mentions do not trigger
+
+Check all of the following:
+
+- Mention the app slug in a PR comment (for example, `@my-app`) rather than only relying on
+  `@my-app[bot]` autocomplete.
+- `github_bot_username` in Terraform matches your app bot login.
+- GitHub App webhook settings include: Pull requests, Issue comments, Pull request review comments.
+- If GitHub integration settings are configured, ensure the repo is enabled and the commenter is
+  allowed (or has write-level permission).
+
 ## Related Docs
 
 - Architecture and internals: [docs/HOW_IT_WORKS.md](./HOW_IT_WORKS.md)

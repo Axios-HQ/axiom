@@ -140,6 +140,7 @@ export default function Home() {
           body: JSON.stringify({
             repoOwner: owner,
             repoName: name,
+            sessionRepos: [{ repoOwner: owner, repoName: name, editable: true }],
             model: selectedModel,
             reasoningEffort,
             branch: selectedBranch || undefined,
@@ -375,6 +376,7 @@ function HomeContent({
               className="mx-auto mb-4 dark:opacity-90"
               priority
             />
+            <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Axiom</h1>
             {isAuthenticated ? (
               <p className="text-muted-foreground">
                 Ask a question or describe what you want to build
@@ -517,9 +519,7 @@ function HomeContent({
                   </div>
 
                   {/* Right side - Agent label */}
-                  <span className="hidden sm:inline text-sm text-muted-foreground">
-                    build agent
-                  </span>
+                  <span className="hidden sm:inline text-sm text-muted-foreground">Axiom</span>
                 </div>
               </div>
 

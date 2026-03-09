@@ -13,6 +13,8 @@ import {
 import { SessionIndexStore } from "./db/session-index";
 import { UserScmTokenStore, DEFAULT_TOKEN_LIFETIME_MS } from "./db/user-scm-tokens";
 import { buildSessionInternalUrl, SessionInternalPaths } from "./session/contracts";
+import { IdentityLinksStore, type IdentityProvider } from "./db/identity-links";
+import { resolveGitHubUserById } from "./source-control/github-user-resolver";
 
 import {
   getValidModelOrDefault,
@@ -40,6 +42,7 @@ import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
 import { mediaRoutes } from "./routes/media";
+import { identityLinksRoutes } from "./routes/identity-links";
 
 const logger = createLogger("router");
 
@@ -60,6 +63,19 @@ const SESSION_STATUSES: SessionStatus[] = [
 function parseSessionStatus(value: string | null): SessionStatus | undefined {
   if (!value) return undefined;
   return SESSION_STATUSES.includes(value as SessionStatus) ? (value as SessionStatus) : undefined;
+}
+
+function parseExternalIdentity(
+  userId: string | undefined
+): { provider: IdentityProvider; externalUserId: string } | null {
+  if (!userId) return null;
+  if (userId.startsWith("linear:")) {
+    return { provider: "linear", externalUserId: userId.slice("linear:".length) };
+  }
+  if (userId.startsWith("slack:")) {
+    return { provider: "slack", externalUserId: userId.slice("slack:".length) };
+  }
+  return null;
 }
 
 /**
@@ -100,7 +116,7 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
 /**
  * Routes that do not require authentication.
  */
-const PUBLIC_ROUTES: RegExp[] = [/^\/health$/];
+const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
 
 /**
  * Routes that accept sandbox authentication.
@@ -109,13 +125,16 @@ const PUBLIC_ROUTES: RegExp[] = [/^\/health$/];
  */
 const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/pr$/, // PR creation from sandbox
+  /^\/sessions\/[^/]+\/git-push$/, // Push commits to remote branch from sandbox
   /^\/sessions\/[^/]+\/openai-token-refresh$/, // OpenAI token refresh from sandbox
   /^\/sessions\/[^/]+\/github-token-refresh$/, // GitHub token refresh from sandbox
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
-  /^\/sessions\/[^/]+\/media\/upload$/, // Media upload from sandbox
-  /^\/sessions\/[^/]+\/agent-update$/, // Agent update from sandbox
+  /^\/api\/media\/upload$/, // Media upload from sandbox
+  /^\/sessions\/[^/]+\/agent-update$/, // Agent progress updates
+  /^\/sessions\/[^/]+\/preview-url$/, // Publish a preview URL artifact
+  /^\/sessions\/[^/]+\/code-server-ready$/, // code-server started (authenticated, credential delivery)
 ];
 
 type CachedScmProvider =
@@ -156,6 +175,32 @@ function resolveDeploymentScmProvider(env: Env): SourceControlProviderName {
   }
 
   return cachedScmProvider.provider;
+}
+
+type RequestedSessionRepo = {
+  repoOwner: string;
+  repoName: string;
+  editable?: boolean;
+};
+
+type ResolvedSessionRepo = {
+  repoOwner: string;
+  repoName: string;
+  repoId: number;
+  defaultBranch: string;
+  order: number;
+  isPrimary: boolean;
+  isEditable: boolean;
+};
+
+function getRequestedSessionRepos(
+  body: CreateSessionRequest & { sessionRepos?: RequestedSessionRepo[] }
+): RequestedSessionRepo[] {
+  if (Array.isArray(body.sessionRepos) && body.sessionRepos.length > 0) {
+    return body.sessionRepos;
+  }
+
+  return [{ repoOwner: body.repoOwner, repoName: body.repoName, editable: true }];
 }
 
 /**
@@ -387,6 +432,11 @@ const routes: Route[] = [
   },
   {
     method: "POST",
+    pattern: parsePattern("/sessions/:id/git-push"),
+    handler: handleGitPush,
+  },
+  {
+    method: "POST",
     pattern: parsePattern("/sessions/:id/openai-token-refresh"),
     handler: handleOpenAITokenRefresh,
   },
@@ -452,14 +502,31 @@ const routes: Route[] = [
   // Integration settings
   ...integrationSettingsRoutes,
 
+  // Identity links (Slack/Linear -> GitHub)
+  ...identityLinksRoutes,
+
   // Repo image builds
   ...repoImageRoutes,
 
   // Automations
   ...automationRoutes,
 
-  // Media upload/download
+  // Media upload/download (R2)
   ...mediaRoutes,
+
+  // Preview URL publishing (sandbox/agent-authenticated)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/preview-url"),
+    handler: handlePublishPreviewUrl,
+  },
+
+  // code-server credentials delivery (sandbox-authenticated, not logged)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/code-server-ready"),
+    handler: handleCodeServerReady,
+  },
 ];
 
 /**
@@ -520,6 +587,9 @@ export async function handleRequest(
             // Both HMAC and sandbox auth failed
             return withCorsAndTraceHeaders(sandboxAuthError, ctx);
           }
+        } else {
+          // Sandbox route without session ID in path — fail closed
+          return withCorsAndTraceHeaders(hmacAuthError, ctx);
         }
       } else {
         // Not a sandbox auth route, return HMAC auth error
@@ -622,8 +692,11 @@ async function handleCreateSession(
   ctx: RequestContext
 ): Promise<Response> {
   const body = (await request.json()) as CreateSessionRequest & {
+    sessionRepos?: RequestedSessionRepo[];
+    allowSecondaryRepoEdit?: boolean;
     scmToken?: string;
     userId?: string;
+    scmUserId?: string;
     scmLogin?: string;
     scmName?: string;
     scmEmail?: string;
@@ -638,38 +711,175 @@ async function handleCreateSession(
     return error("Invalid branch name");
   }
 
-  // Normalize repo identifiers to lowercase for consistent storage
-  const repoOwner = body.repoOwner.toLowerCase();
-  const repoName = body.repoName.toLowerCase();
+  const requestedSessionRepos = getRequestedSessionRepos(body);
+  if (requestedSessionRepos.length > 2) {
+    return error("sessionRepos supports a maximum of 2 repositories", 400);
+  }
 
-  let repoId: number;
-  let defaultBranch: string;
+  let resolvedSessionRepos: ResolvedSessionRepo[];
   try {
     const provider = createRouteSourceControlProvider(env);
-    const resolved = await resolveInstalledRepo(provider, repoOwner, repoName);
-    if (!resolved) {
-      return error("Repository is not installed for the GitHub App", 404);
+    resolvedSessionRepos = [];
+    for (let index = 0; index < requestedSessionRepos.length; index++) {
+      const requested = requestedSessionRepos[index];
+      if (
+        typeof requested.repoOwner !== "string" ||
+        requested.repoOwner.trim().length === 0 ||
+        typeof requested.repoName !== "string" ||
+        requested.repoName.trim().length === 0
+      ) {
+        return error(
+          `sessionRepos[${index}] must have non-empty string repoOwner and repoName`,
+          400
+        );
+      }
+      const normalizedOwner = requested.repoOwner.trim().toLowerCase();
+      const normalizedName = requested.repoName.trim().toLowerCase();
+      const resolved = await resolveInstalledRepo(provider, normalizedOwner, normalizedName);
+      if (!resolved) {
+        return error(
+          `Repository is not installed for the GitHub App: ${normalizedOwner}/${normalizedName}`,
+          404
+        );
+      }
+
+      const isPrimary = index === 0;
+      const allowSecondaryEdit = body.allowSecondaryRepoEdit === true;
+      const isEditable = isPrimary ? true : allowSecondaryEdit && requested.editable === true;
+
+      resolvedSessionRepos.push({
+        repoOwner: normalizedOwner,
+        repoName: normalizedName,
+        repoId: resolved.repoId,
+        defaultBranch: resolved.defaultBranch,
+        order: index,
+        isPrimary,
+        isEditable,
+      });
     }
-    repoId = resolved.repoId;
-    defaultBranch = resolved.defaultBranch;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logger.error("Failed to resolve repository", {
       error: message,
-      repo_owner: repoOwner,
-      repo_name: repoName,
+      repo_owner: body.repoOwner,
+      repo_name: body.repoName,
     });
     const isConfigError =
       e instanceof SourceControlProviderError && e.errorType === "permanent" && !e.httpStatus;
     return error(isConfigError ? message : "Failed to resolve repository", 500);
   }
 
+  const primaryRepo = resolvedSessionRepos[0];
+  if (!primaryRepo) {
+    return error("At least one repository is required", 400);
+  }
+
+  const repoOwner = primaryRepo.repoOwner;
+  const repoName = primaryRepo.repoName;
+  const repoId = primaryRepo.repoId;
+  const defaultBranch = primaryRepo.defaultBranch;
+
   const userId = body.userId || "anonymous";
-  const scmLogin = body.scmLogin;
-  const scmName = body.scmName;
+  let scmUserId = body.scmUserId;
+  let scmLogin = body.scmLogin;
+  let scmName = body.scmName;
   const scmEmail = body.scmEmail;
   const scmToken = body.scmToken;
   let scmTokenEncrypted: string | null = null;
+
+  // For Slack/Linear-triggered sessions, resolve GitHub identity.
+  // Resolution order:
+  //   1. Existing identity_link (cached from a previous resolution or manual link)
+  //   2. scmUserId from Linear's gitHubUserId field → GitHub API GET /user/:id
+  // Successful resolutions are auto-persisted to identity_links for future lookups.
+  if (!scmLogin) {
+    const identityStore = new IdentityLinksStore(env.DB);
+    const externalIdentity = parseExternalIdentity(userId);
+
+    // 1. Check cached identity link
+    if (externalIdentity) {
+      try {
+        const identityLink = await identityStore.getByProviderExternal(
+          externalIdentity.provider,
+          externalIdentity.externalUserId
+        );
+        if (identityLink) {
+          scmLogin = identityLink.githubLogin;
+          scmUserId = identityLink.githubUserId;
+          scmName = scmName || identityLink.githubName || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "cached",
+            provider: externalIdentity.provider,
+            external_user_id: externalIdentity.externalUserId,
+            github_login: identityLink.githubLogin,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+        }
+      } catch (e) {
+        logger.warn("identity_link.lookup_failed", {
+          event: "identity_link.lookup_failed",
+          provider: externalIdentity.provider,
+          external_user_id: externalIdentity.externalUserId,
+          user_id: userId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+
+    // 2. If still no login but we have a GitHub user ID (from Linear's gitHubUserId),
+    //    resolve it via the GitHub API.
+    if (!scmLogin && scmUserId) {
+      try {
+        const ghUser = await resolveGitHubUserById(scmUserId);
+        if (ghUser) {
+          scmLogin = ghUser.login;
+          scmName = scmName || ghUser.name || undefined;
+          logger.info("identity_link.resolved", {
+            event: "identity_link.resolved",
+            method: "github_user_id",
+            github_user_id: scmUserId,
+            github_login: ghUser.login,
+            user_id: userId,
+            trace_id: ctx.trace_id,
+            request_id: ctx.request_id,
+          });
+
+          // Auto-persist the link for future lookups
+          if (externalIdentity) {
+            await identityStore
+              .upsert({
+                provider: externalIdentity.provider,
+                externalUserId: externalIdentity.externalUserId,
+                githubUserId: scmUserId,
+                githubLogin: ghUser.login,
+                githubName: ghUser.name,
+                createdBy: "auto:github_user_id",
+                source: "session_auto",
+                sourceMetadata: { method: "github_user_id" },
+                isManual: false,
+              })
+              .catch((e) =>
+                logger.warn("identity_link.auto_upsert_failed", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
+              );
+          }
+        }
+      } catch (e) {
+        logger.warn("identity_link.github_user_lookup_failed", {
+          github_user_id: scmUserId,
+          error: e instanceof Error ? e.message : String(e),
+          trace_id: ctx.trace_id,
+          request_id: ctx.request_id,
+        });
+      }
+    }
+  }
 
   // If SCM token provided, encrypt it
   if (scmToken && env.TOKEN_ENCRYPTION_KEY) {
@@ -710,11 +920,13 @@ async function handleCreateSession(
           repoName,
           repoId,
           defaultBranch,
+          sessionRepos: resolvedSessionRepos,
           branch: body.branch,
           title: body.title,
           model,
           reasoningEffort,
           userId,
+          scmUserId,
           scmLogin,
           scmName,
           scmEmail,
@@ -737,6 +949,7 @@ async function handleCreateSession(
     title: body.title || null,
     repoOwner,
     repoName,
+    sessionReposJson: JSON.stringify(resolvedSessionRepos),
     model,
     reasoningEffort,
     baseBranch: body.branch || defaultBranch || "main",
@@ -916,7 +1129,7 @@ async function handleSessionEvents(
 }
 
 async function handleSessionArtifacts(
-  _request: Request,
+  request: Request,
   env: Env,
   match: RegExpMatchArray,
   ctx: RequestContext
@@ -924,8 +1137,13 @@ async function handleSessionArtifacts(
   const stub = getSessionStub(env, match);
   if (!stub) return error("Session ID required");
 
+  const url = new URL(request.url);
   return stub.fetch(
-    internalRequest(buildSessionInternalUrl(SessionInternalPaths.artifacts), undefined, ctx)
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.artifacts, url.search),
+      undefined,
+      ctx
+    )
   );
 }
 
@@ -1005,6 +1223,9 @@ async function handleCreatePR(
     body: string;
     baseBranch?: string;
     headBranch?: string;
+    draft?: boolean;
+    repoOwner?: string;
+    repoName?: string;
   };
 
   if (
@@ -1024,6 +1245,18 @@ async function handleCreatePR(
     return error("headBranch must be a string");
   }
 
+  if (body.draft != null && typeof body.draft !== "boolean") {
+    return error("draft must be a boolean");
+  }
+
+  if (body.repoOwner != null && typeof body.repoOwner !== "string") {
+    return error("repoOwner must be a string");
+  }
+
+  if (body.repoName != null && typeof body.repoName !== "string") {
+    return error("repoName must be a string");
+  }
+
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
@@ -1038,6 +1271,9 @@ async function handleCreatePR(
           body: body.body,
           baseBranch: body.baseBranch,
           headBranch: body.headBranch,
+          draft: body.draft,
+          repoOwner: body.repoOwner,
+          repoName: body.repoName,
         }),
       },
       ctx
@@ -1045,6 +1281,33 @@ async function handleCreatePR(
   );
 
   return response;
+}
+
+async function handleGitPush(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const body = (await request.json()) as { headBranch?: string };
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.gitPush),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headBranch: body.headBranch }),
+      },
+      ctx
+    )
+  );
 }
 
 async function handleOpenAITokenRefresh(
@@ -1375,6 +1638,7 @@ async function handleSpawnChild(
           repoOwner: spawnContext.repoOwner,
           repoName: spawnContext.repoName,
           repoId: spawnContext.repoId,
+          sessionRepos: spawnContext.sessionRepos,
           title: body.title,
           model,
           reasoningEffort,
@@ -1403,6 +1667,9 @@ async function handleSpawnChild(
     title: body.title,
     repoOwner: spawnContext.repoOwner,
     repoName: spawnContext.repoName,
+    sessionReposJson: spawnContext.sessionRepos
+      ? JSON.stringify(spawnContext.sessionRepos)
+      : undefined,
     model,
     reasoningEffort,
     baseBranch: null,
@@ -1524,6 +1791,65 @@ async function handleGetChild(
   );
 
   return response;
+}
+
+/**
+ * Handle a preview URL publish request from a sandbox agent tool or
+ * sandbox bridge.  Forwards to the session DO which upserts a preview
+ * artifact and broadcasts an `artifact_created` message to connected clients.
+ */
+async function handlePublishPreviewUrl(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSessionStub(env, match);
+  if (!stub) return error("Session ID required");
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.previewUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
+}
+
+/**
+ * Handle code-server ready notification from the sandbox.
+ *
+ * The sandbox reports the tunnel URL and the session-scoped password.
+ * This endpoint forwards to the session DO which:
+ *   1. Creates a "preview" artifact with the URL (no password).
+ *   2. Broadcasts `code_server_ready` (URL + password) over the
+ *      authenticated WebSocket channel only — credentials are never
+ *      written to the event log.
+ */
+async function handleCodeServerReady(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const stub = getSessionStub(env, match);
+  if (!stub) return error("Session ID required");
+
+  return stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.codeServerReady),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body,
+      },
+      ctx
+    )
+  );
 }
 
 async function handleCancelChild(

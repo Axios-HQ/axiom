@@ -199,11 +199,20 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(createPrCall[0]).toEqual({ authType: "app", token: "app-token" });
+    expect(createPrCall[1].body).toContain("Requested by user-1");
+    expect(createPrCall[1].reviewers).toBeUndefined();
     expect(harness.deps.broadcastArtifactCreated).toHaveBeenCalledTimes(1);
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("app");
+    expect(metadata.oauthSignInRequired).toBe(true);
   });
 
   it("creates PR with OAuth token and stores PR artifact", async () => {
@@ -216,11 +225,14 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "oauth",
+      oauthSignInRequired: false,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
     const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(createPrCall[0]).toEqual({ authType: "oauth", token: "user-token" });
+    expect(createPrCall[1].body).toContain("Requested by user-1");
     expect(createPrCall[1].body).toContain(
       "*Created with [Open-Inspect](https://app.example.com/session/session-name-1)*"
     );
@@ -230,6 +242,35 @@ describe("SessionPullRequestService", () => {
       url: "https://github.com/acme/web/pull/42",
       prNumber: 42,
     });
+    // Verify artifact metadata carries auth fields
+    const storedArtifact = harness.artifacts[0];
+    const metadata = JSON.parse(storedArtifact.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.authMode).toBe("oauth");
+    expect(metadata.oauthSignInRequired).toBe(false);
+  });
+
+  it("forwards draft flag when creating a PR", async () => {
+    await harness.service.createPullRequest(
+      createInput({
+        promptingAuth: { authType: "oauth", token: "user-token" },
+        draft: true,
+      })
+    );
+
+    const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(createPrCall[1].draft).toBe(true);
+  });
+
+  it("requests review from prompting scm login when using app auth", async () => {
+    await harness.service.createPullRequest(
+      createInput({ promptingAuth: null, promptingScmLogin: "josh" })
+    );
+
+    const createPrCall = (harness.provider.createPullRequest as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(createPrCall[1].reviewers).toEqual(["josh"]);
+    expect(createPrCall[1].body).toContain("Requested by @josh");
   });
 
   it("ignores prior manual branch artifact and creates PR", async () => {
@@ -252,6 +293,8 @@ describe("SessionPullRequestService", () => {
       prNumber: 42,
       prUrl: "https://github.com/acme/web/pull/42",
       state: "open",
+      authMode: "app",
+      oauthSignInRequired: true,
     });
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(1);
   });

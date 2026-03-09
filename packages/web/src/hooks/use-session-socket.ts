@@ -45,7 +45,18 @@ interface UseSessionSocketReturn {
   isProcessing: boolean;
   hasMoreHistory: boolean;
   loadingHistory: boolean;
-  sendPrompt: (content: string, model?: string, reasoningEffort?: string) => void;
+  /**
+   * code-server credentials delivered over the authenticated WS channel.
+   * The password is session-scoped and rotated on each sandbox restore.
+   * It is kept in React state only (never persisted or logged).
+   */
+  codeServer: { url: string; password: string } | null;
+  sendPrompt: (
+    content: string,
+    model?: string,
+    reasoningEffort?: string,
+    attachments?: Array<{ type: string; name: string; url: string; mimeType?: string }>
+  ) => void;
   stopExecution: () => void;
   sendTyping: () => void;
   reconnect: () => void;
@@ -113,14 +124,38 @@ function toUiArtifact(artifact: {
   type: string;
   url: string;
   prNumber?: number;
+  metadata?: Record<string, unknown>;
+  createdAt?: number;
 }): Artifact {
   return {
     id: artifact.id,
     type: artifact.type as Artifact["type"],
     url: artifact.url,
-    createdAt: Date.now(),
-    metadata: artifact.prNumber ? { prNumber: artifact.prNumber } : undefined,
+    createdAt: artifact.createdAt ?? Date.now(),
+    metadata:
+      artifact.metadata ?? (artifact.prNumber ? { prNumber: artifact.prNumber } : undefined),
   };
+}
+
+function mergeArtifactsById(existing: Artifact[], incoming: Artifact[]): Artifact[] {
+  const byId = new Map(existing.map((artifact) => [artifact.id, artifact]));
+
+  for (const artifact of incoming) {
+    const current = byId.get(artifact.id);
+    if (!current) {
+      byId.set(artifact.id, artifact);
+      continue;
+    }
+
+    byId.set(artifact.id, {
+      ...artifact,
+      ...current,
+      metadata: current.metadata ?? artifact.metadata,
+      createdAt: current.createdAt ?? artifact.createdAt,
+    });
+  }
+
+  return Array.from(byId.values());
 }
 
 export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
@@ -148,6 +183,8 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
+  // code-server credentials (session-scoped, kept in memory only).
+  const [codeServer, setCodeServer] = useState<{ url: string; password: string } | null>(null);
   const currentParticipantRef = useRef<{
     participantId: string;
     name: string;
@@ -196,14 +233,42 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
     }
   }, []);
 
+  const hydrateArtifacts = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/artifacts`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        artifacts?: Array<{
+          id: string;
+          type: string;
+          url: string;
+          prNumber?: number;
+          metadata?: Record<string, unknown>;
+          createdAt?: number;
+        }>;
+      };
+
+      const incoming = (payload.artifacts ?? []).map(toUiArtifact);
+      setArtifacts((prev) => mergeArtifactsById(prev, incoming));
+    } catch (error) {
+      console.error("Failed to hydrate artifacts:", error);
+    }
+  }, [sessionId]);
+
   const handleMessage = useCallback(
     (data: WsMessage) => {
       switch (data.type) {
         case "subscribed": {
           console.log("WebSocket subscribed to session");
           subscribedRef.current = true;
-          // Clear existing state since we're about to receive fresh history
-          setArtifacts([]);
+          void hydrateArtifacts();
           pendingTextRef.current = null;
           if (data.state) {
             setSessionState({
@@ -303,10 +368,23 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
             // Avoid duplicates
             const existing = prev.find((a) => a.id === data.artifact.id);
             if (existing) {
-              return prev.map((a) => (a.id === data.artifact.id ? toUiArtifact(data.artifact) : a));
+              return prev.map((a) => {
+                if (a.id !== data.artifact.id) return a;
+                const updated = toUiArtifact(data.artifact);
+                return {
+                  ...updated,
+                  metadata: updated.metadata ?? a.metadata,
+                  createdAt: updated.createdAt ?? a.createdAt,
+                };
+              });
             }
             return [...prev, toUiArtifact(data.artifact)];
           });
+          break;
+
+        case "code_server_ready":
+          // Store credentials in component state only — never persisted or logged.
+          setCodeServer({ url: data.url, password: data.password });
           break;
 
         case "session_status":
@@ -341,7 +419,7 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
           break;
       }
     },
-    [processSandboxEvent, sessionId]
+    [processSandboxEvent, sessionId, hydrateArtifacts]
   );
 
   const fetchWsToken = useCallback(async (): Promise<string | null> => {
@@ -493,42 +571,52 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
     };
   }, [sessionId, handleMessage, fetchWsToken]);
 
-  const sendPrompt = useCallback((content: string, model?: string, reasoningEffort?: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.error("WebSocket not connected");
-      return;
-    }
+  const sendPrompt = useCallback(
+    (
+      content: string,
+      model?: string,
+      reasoningEffort?: string,
+      attachments?: Array<{ type: string; name: string; url: string; mimeType?: string }>
+    ) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        console.error("WebSocket not connected");
+        return;
+      }
 
-    if (!subscribedRef.current) {
-      console.error("Not subscribed yet, waiting...");
-      // Retry after a short delay
-      setTimeout(() => sendPrompt(content, model, reasoningEffort), 500);
-      return;
-    }
+      if (!subscribedRef.current) {
+        console.error("Not subscribed yet, waiting...");
+        // Retry after a short delay
+        setTimeout(() => sendPrompt(content, model, reasoningEffort, attachments), 500);
+        return;
+      }
 
-    console.log("Sending prompt", {
-      contentLength: content.length,
-      model,
-      reasoningEffort,
-    });
-
-    // Optimistically set isProcessing for immediate feedback
-    // Server will confirm with processing_status message
-    setSessionState((prev) => (prev ? { ...prev, isProcessing: true } : null));
-
-    // Note: user_message event is NOT inserted optimistically here.
-    // The server writes a user_message event to the events table and broadcasts it
-    // to all clients (including the sender), which handles both display and multiplayer.
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: "prompt",
-        content,
-        model, // Include model for per-message model switching
+      console.log("Sending prompt", {
+        contentLength: content.length,
+        model,
         reasoningEffort,
-      })
-    );
-  }, []);
+        attachmentCount: attachments?.length ?? 0,
+      });
+
+      // Optimistically set isProcessing for immediate feedback
+      // Server will confirm with processing_status message
+      setSessionState((prev) => (prev ? { ...prev, isProcessing: true } : null));
+
+      // Note: user_message event is NOT inserted optimistically here.
+      // The server writes a user_message event to the events table and broadcasts it
+      // to all clients (including the sender), which handles both display and multiplayer.
+
+      wsRef.current.send(
+        JSON.stringify({
+          type: "prompt",
+          content,
+          model, // Include model for per-message model switching
+          reasoningEffort,
+          ...(attachments?.length ? { attachments } : {}),
+        })
+      );
+    },
+    []
+  );
 
   const stopExecution = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -631,6 +719,7 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
     isProcessing,
     hasMoreHistory,
     loadingHistory,
+    codeServer,
     sendPrompt,
     stopExecution,
     sendTyping,

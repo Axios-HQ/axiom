@@ -34,6 +34,9 @@ export interface SessionInternalRouteHandlers {
   cancel: SessionInternalRouteHandler;
   childSessionUpdate: SessionInternalRouteHandler;
   agentUpdate: SessionInternalRouteHandler;
+  gitPush: SessionInternalRouteHandler;
+  previewUrl: SessionInternalRouteHandler;
+  codeServerReady: SessionInternalRouteHandler;
 }
 
 /**
@@ -90,5 +93,12 @@ export function createSessionInternalRoutes(
       handler: handlers.childSessionUpdate,
     },
     { method: "POST", path: SessionInternalPaths.agentUpdate, handler: handlers.agentUpdate },
+    { method: "POST", path: SessionInternalPaths.gitPush, handler: handlers.gitPush },
+    { method: "POST", path: SessionInternalPaths.previewUrl, handler: handlers.previewUrl },
+    {
+      method: "POST",
+      path: SessionInternalPaths.codeServerReady,
+      handler: handlers.codeServerReady,
+    },
   ];
 }

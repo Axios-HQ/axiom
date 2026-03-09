@@ -4,6 +4,55 @@ import type { SourceControlProvider } from "../../src/source-control";
 import type { SessionAgent } from "../../src/session/durable-object";
 import { initSession, queryDO, seedMessage } from "./helpers";
 
+function createMockSourceControlProvider(): SourceControlProvider {
+  return {
+    name: "github",
+    generatePushAuth: async () => ({ authType: "app", token: "push-token" as const }),
+    getRepository: async () => ({
+      owner: "acme",
+      name: "web-app",
+      fullName: "acme/web-app",
+      defaultBranch: "main",
+      isPrivate: true,
+      providerRepoId: 12345,
+    }),
+    createPullRequest: async (_auth, config) => ({
+      id: 42,
+      webUrl: "https://github.com/acme/web-app/pull/42",
+      apiUrl: "https://api.github.com/repos/acme/web-app/pulls/42",
+      state: config.draft ? ("draft" as const) : ("open" as const),
+      sourceBranch: "open-inspect/test-session",
+      targetBranch: "main",
+    }),
+    buildManualPullRequestUrl: (config: {
+      owner: string;
+      name: string;
+      sourceBranch: string;
+      targetBranch: string;
+    }) =>
+      `https://github.com/${config.owner}/${config.name}/pull/new/${config.targetBranch}...${config.sourceBranch}`,
+    buildGitPushSpec: (config: { targetBranch: string }) => ({
+      remoteUrl: "https://example.invalid/repo.git",
+      redactedRemoteUrl: "https://example.invalid/<redacted>.git",
+      refspec: `HEAD:refs/heads/${config.targetBranch}`,
+      targetBranch: config.targetBranch,
+      force: true,
+    }),
+    checkRepositoryAccess: async () => ({
+      repoId: 12345,
+      repoOwner: "acme",
+      repoName: "web-app",
+      defaultBranch: "main",
+    }),
+    listRepositories: async () => [],
+    listBranches: async () => [],
+    generateCloneAuth: async () => ({ authType: "app", token: "push-token" as const }),
+    buildGitCloneSpec: () => ({ cloneUrl: "https://example.invalid/repo.git" }),
+    addLabels: async () => undefined,
+    requestReviewers: async () => undefined,
+  } as SourceControlProvider;
+}
+
 describe("POST /internal/create-pr", () => {
   it("returns 404 when session is not initialized", async () => {
     const id = env.SESSION.newUniqueId();
@@ -88,7 +137,7 @@ describe("POST /internal/create-pr", () => {
     const body = await res.json<{ error: string }>();
     expect(body.error).toBe("User not found. Please re-authenticate.");
   });
-  it("returns 401 when expired OAuth token cannot be refreshed", async () => {
+  it("falls back to app auth when expired OAuth token cannot be refreshed", async () => {
     const { stub } = await initSession({ userId: "user-1" });
 
     const participants = await queryDO<{ id: string }>(
@@ -112,6 +161,10 @@ describe("POST /internal/create-pr", () => {
     });
 
     await runInDurableObject(stub, (instance: SessionAgent) => {
+      (
+        instance as unknown as { _sourceControlProvider: SourceControlProvider | null }
+      )._sourceControlProvider = createMockSourceControlProvider();
+
       instance.ctx.storage.sql.exec(
         "UPDATE participants SET scm_access_token_encrypted = ?, scm_refresh_token_encrypted = ?, scm_token_expires_at = ? WHERE id = ?",
         "invalid-access-token",
@@ -130,11 +183,11 @@ describe("POST /internal/create-pr", () => {
       }),
     });
 
-    expect(res.status).toBe(401);
-    const body = await res.json<{ error: string }>();
-    expect(body.error).toBe(
-      "Your source control token has expired and could not be refreshed. Please re-authenticate."
-    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ prNumber: number; prUrl: string; state: string }>();
+    expect(body.prNumber).toBe(42);
+    expect(body.prUrl).toBe("https://github.com/acme/web-app/pull/42");
+    expect(body.state).toBe("open");
   });
 
   it("creates PR with app auth when prompting user has no OAuth token", async () => {
@@ -161,44 +214,9 @@ describe("POST /internal/create-pr", () => {
     });
 
     await runInDurableObject(stub, (instance: SessionAgent) => {
-      const mockProvider = {
-        name: "github",
-        generatePushAuth: async () => ({ authType: "app", token: "push-token" as const }),
-        getRepository: async () => ({
-          owner: "acme",
-          name: "web-app",
-          fullName: "acme/web-app",
-          defaultBranch: "main",
-          isPrivate: true,
-          providerRepoId: 12345,
-        }),
-        createPullRequest: async () => ({
-          id: 42,
-          webUrl: "https://github.com/acme/web-app/pull/42",
-          apiUrl: "https://api.github.com/repos/acme/web-app/pulls/42",
-          state: "open" as const,
-          sourceBranch: "open-inspect/test-session",
-          targetBranch: "main",
-        }),
-        buildManualPullRequestUrl: (config: {
-          owner: string;
-          name: string;
-          sourceBranch: string;
-          targetBranch: string;
-        }) =>
-          `https://github.com/${config.owner}/${config.name}/pull/new/${config.targetBranch}...${config.sourceBranch}`,
-        buildGitPushSpec: (config: { targetBranch: string }) => ({
-          remoteUrl: "https://example.invalid/repo.git",
-          redactedRemoteUrl: "https://example.invalid/<redacted>.git",
-          refspec: `HEAD:refs/heads/${config.targetBranch}`,
-          targetBranch: config.targetBranch,
-          force: true,
-        }),
-      } as unknown as SourceControlProvider;
-
       (
         instance as unknown as { _sourceControlProvider: SourceControlProvider | null }
-      )._sourceControlProvider = mockProvider;
+      )._sourceControlProvider = createMockSourceControlProvider();
     });
 
     const res = await stub.fetch("http://internal/internal/create-pr", {
@@ -207,6 +225,7 @@ describe("POST /internal/create-pr", () => {
       body: JSON.stringify({
         title: "Test PR",
         body: "Body from integration test",
+        draft: true,
       }),
     });
 
@@ -218,7 +237,7 @@ describe("POST /internal/create-pr", () => {
     }>();
     expect(body.prNumber).toBe(42);
     expect(body.prUrl).toBe("https://github.com/acme/web-app/pull/42");
-    expect(body.state).toBe("open");
+    expect(body.state).toBe("draft");
 
     const artifacts = await queryDO<{ type: string; metadata: string | null }>(
       stub,
@@ -274,5 +293,44 @@ describe("POST /internal/create-pr", () => {
     expect(res.status).toBe(409);
     const body = await res.json<{ error: string }>();
     expect(body.error).toBe("A pull request has already been created for this session.");
+  });
+
+  it("rejects PR creation when requested repo does not match session repo", async () => {
+    const { stub } = await initSession({ userId: "user-1" });
+
+    const participants = await queryDO<{ id: string }>(
+      stub,
+      "SELECT id FROM participants WHERE user_id = ?",
+      "user-1"
+    );
+    const ownerParticipantId = participants[0]?.id;
+    if (!ownerParticipantId) {
+      throw new Error("Expected owner participant");
+    }
+
+    await seedMessage(stub, {
+      id: "msg-processing-repo-mismatch",
+      authorId: ownerParticipantId,
+      content: "Create a PR",
+      source: "web",
+      status: "processing",
+      createdAt: Date.now() - 1000,
+      startedAt: Date.now() - 500,
+    });
+
+    const res = await stub.fetch("http://internal/internal/create-pr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Test PR",
+        body: "Body from integration test",
+        repoOwner: "wrong",
+        repoName: "repo",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json<{ error: string }>();
+    expect(body.error).toContain("does not match");
   });
 });

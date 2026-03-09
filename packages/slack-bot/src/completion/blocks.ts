@@ -59,13 +59,17 @@ export function buildCompletionBlocks(
     });
   }
 
-  // 2b. Screenshot images (inline)
-  const screenshotArtifacts = response.artifacts.filter((a) => a.type === "screenshot" && a.url);
-  for (const screenshot of screenshotArtifacts) {
+  // 2b. Screenshot artifacts (already shared inline via /callbacks/update)
+  const screenshotCount = response.artifacts.filter((a) => a.type === "screenshot").length;
+  if (screenshotCount > 0) {
     blocks.push({
-      type: "image",
-      image_url: screenshot.url,
-      alt_text: screenshot.label || "Screenshot",
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `${screenshotCount} screenshot${screenshotCount > 1 ? "s" : ""} shared above`,
+        },
+      ],
     });
   }
 
@@ -96,7 +100,38 @@ export function buildCompletionBlocks(
   });
 
   const hasPrArtifact = response.artifacts.some((artifact) => artifact.type === "pr");
+  const requiresSignIn = hasPrArtifactWithoutOAuth(response.artifacts);
   const manualCreatePrUrl = getManualCreatePrUrl(response.artifacts);
+
+  // Collect active preview URLs (skip code-server and stopped ones — credentials
+  // are session-scoped and must not be embedded in potentially public Slack messages).
+  const previewLinks = response.artifacts.filter(
+    (a) =>
+      a.type === "preview" &&
+      a.url &&
+      (a.metadata as Record<string, unknown> | null | undefined)?.kind !== "code_server" &&
+      (a.metadata as Record<string, unknown> | null | undefined)?.previewStatus !== "stopped"
+  );
+
+  if (previewLinks.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Live Previews:*\n" +
+          previewLinks
+            .map((a) => {
+              const meta = a.metadata as Record<string, unknown> | null | undefined;
+              const label = meta?.label ? String(meta.label) : "preview";
+              const repo = meta?.repo ? ` _(${String(meta.repo)})_` : "";
+              return `- <${a.url}|${label}>${repo}`;
+            })
+            .join("\n"),
+      },
+    });
+  }
+
   const actionElements: Array<{
     type: string;
     text: { type: string; text: string };
@@ -120,6 +155,24 @@ export function buildCompletionBlocks(
     });
   }
 
+  if (requiresSignIn) {
+    actionElements.push({
+      type: "button",
+      text: { type: "plain_text", text: "Sign in with GitHub" },
+      url: `${webAppUrl}/api/auth/signin/github`,
+      action_id: "signin_github",
+    });
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "PR was opened with app auth. Sign in once to open future PRs as yourself.",
+        },
+      ],
+    });
+  }
+
   // 5. Action buttons
   blocks.push({
     type: "actions",
@@ -127,6 +180,16 @@ export function buildCompletionBlocks(
   });
 
   return blocks;
+}
+
+function hasPrArtifactWithoutOAuth(artifacts: AgentResponse["artifacts"]): boolean {
+  return artifacts.some(
+    (artifact) =>
+      artifact.type === "pr" &&
+      artifact.metadata !== null &&
+      typeof artifact.metadata === "object" &&
+      artifact.metadata.oauthSignInRequired === true
+  );
 }
 
 /**

@@ -37,6 +37,7 @@ import {
   resolveScmProviderFromEnv,
   type SourceControlProvider,
   type GitPushSpec,
+  type GitPushAuthContext,
 } from "../source-control";
 import {
   DEFAULT_MODEL,
@@ -56,8 +57,8 @@ import type {
   ParticipantRole,
   SpawnSource,
 } from "../types";
-import type { SpawnContext } from "@open-inspect/shared";
-import type { SessionRow, ArtifactRow, SandboxRow } from "./types";
+import type { SpawnContext, SessionRepoScope } from "@open-inspect/shared";
+import type { SessionRow, ArtifactRow, SandboxRow, SessionRepoRow } from "./types";
 import { SessionRepository } from "./repository";
 import { SessionWebSocketManagerImpl, type SessionWebSocketManager } from "./websocket-manager";
 import { SessionPullRequestService } from "./pull-request-service";
@@ -146,6 +147,9 @@ export class SessionAgent extends Agent<Env> {
     cancel: () => this.handleCancel(),
     childSessionUpdate: (request) => this.handleChildSessionUpdate(request),
     agentUpdate: (request) => this.handleAgentUpdate(request),
+    gitPush: (request) => this.handleGitPush(request),
+    previewUrl: (request) => this.handlePreviewUrl(request),
+    codeServerReady: (request) => this.handleCodeServerReady(request),
   });
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -378,6 +382,8 @@ export class SessionAgent extends Agent<Env> {
       getSandbox: () => this.repository.getSandbox(),
       getSandboxWithCircuitBreaker: () => this.repository.getSandboxWithCircuitBreaker(),
       getSession: () => this.repository.getSession(),
+      getSessionRepos: () =>
+        this.repository.listSessionRepos().map((repo) => this.mapRepoRowToScope(repo)),
       getUserEnvVars: () => this.getUserEnvVars(),
       updateSandboxStatus: (status) => this.updateSandboxStatus(status),
       updateSandboxForSpawn: (data) => this.repository.updateSandboxForSpawn(data),
@@ -1297,12 +1303,16 @@ export class SessionAgent extends Agent<Env> {
     sandbox ??= this.getSandbox();
     const messageCount = this.repository.getMessageCount();
     const isProcessing = this.getIsProcessing();
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
 
     return {
       id: this.getPublicSessionId(session),
       title: session?.title ?? null,
       repoOwner: session?.repo_owner ?? "",
       repoName: session?.repo_name ?? "",
+      sessionRepos,
       baseBranch: session?.base_branch ?? "main",
       branchName: session?.branch_name ?? null,
       status: session?.status ?? "created",
@@ -1331,6 +1341,17 @@ export class SessionAgent extends Agent<Env> {
 
   private getSandbox(): SandboxRow | null {
     return this.repository.getSandbox();
+  }
+
+  private mapRepoRowToScope(repo: SessionRepoRow): SessionRepoScope {
+    return {
+      repoOwner: repo.repo_owner,
+      repoName: repo.repo_name,
+      repoId: repo.repo_id,
+      order: repo.order_index,
+      isPrimary: repo.is_primary === 1,
+      isEditable: repo.is_editable === 1,
+    };
   }
 
   private async ensureRepoId(session: SessionRow): Promise<number> {
@@ -1603,6 +1624,7 @@ export class SessionAgent extends Agent<Env> {
       model?: string; // LLM model to use
       reasoningEffort?: string; // Reasoning effort level
       userId: string;
+      scmUserId?: string;
       scmLogin?: string;
       scmName?: string;
       scmEmail?: string;
@@ -1611,6 +1633,7 @@ export class SessionAgent extends Agent<Env> {
       parentSessionId?: string | null;
       spawnSource?: SpawnSource;
       spawnDepth?: number;
+      sessionRepos?: SessionRepoScope[];
     };
 
     const sessionId = this.ctx.id.toString();
@@ -1665,6 +1688,32 @@ export class SessionAgent extends Agent<Env> {
       updatedAt: now,
     });
 
+    const sessionRepos: SessionRepoScope[] =
+      body.sessionRepos && body.sessionRepos.length > 0
+        ? body.sessionRepos
+        : [
+            {
+              repoOwner: body.repoOwner,
+              repoName: body.repoName,
+              repoId: body.repoId ?? null,
+              order: 0,
+              isPrimary: true,
+              isEditable: true,
+            },
+          ];
+
+    this.repository.upsertSessionRepos(
+      sessionRepos.map((repo, index) => ({
+        id: generateId(),
+        repoOwner: repo.repoOwner,
+        repoName: repo.repoName,
+        repoId: repo.repoId,
+        order: repo.order ?? index,
+        isPrimary: Boolean(repo.isPrimary),
+        isEditable: Boolean(repo.isEditable),
+      }))
+    );
+
     // Create sandbox record
     // Note: created_at is set to 0 initially so the first spawn isn't blocked by cooldown
     // It will be updated to the actual spawn time when spawnSandbox() is called
@@ -1681,6 +1730,7 @@ export class SessionAgent extends Agent<Env> {
     this.repository.createParticipant({
       id: participantId,
       userId: body.userId,
+      scmUserId: body.scmUserId ?? null,
       scmLogin: body.scmLogin ?? null,
       scmName: body.scmName ?? null,
       scmEmail: body.scmEmail ?? null,
@@ -1702,12 +1752,16 @@ export class SessionAgent extends Agent<Env> {
     }
 
     const sandbox = this.getSandbox();
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
 
     return Response.json({
       id: this.getPublicSessionId(session),
       title: session.title,
       repoOwner: session.repo_owner,
       repoName: session.repo_name,
+      sessionRepos,
       baseBranch: session.base_branch,
       branchName: session.branch_name,
       baseSha: session.base_sha,
@@ -1741,50 +1795,158 @@ export class SessionAgent extends Agent<Env> {
    * notify the originating bot (Slack/Linear) via callback.
    */
   private async handleAgentUpdate(request: Request): Promise<Response> {
-    const body = (await request.json()) as { message?: string; screenshotUrl?: string };
-    if (!body.message) {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    // Validate message field
+    if (typeof body.message !== "string" || body.message.trim().length === 0) {
       return Response.json({ error: "message is required" }, { status: 400 });
     }
-
-    // Broadcast token event to WebSocket clients
-    const tokenEvent: SandboxEvent = {
-      type: "token",
-      content: body.message,
-      messageId: crypto.randomUUID(),
-      sandboxId: "agent-update",
-      timestamp: Date.now(),
-    };
-    await this.processSandboxEvent(tokenEvent);
-
-    // Broadcast artifact event if screenshot provided
-    if (body.screenshotUrl) {
-      const workerUrl = this.env.WORKER_URL;
-      if (workerUrl && !body.screenshotUrl.startsWith(workerUrl)) {
-        return Response.json(
-          { error: "screenshotUrl must be a media URL from this service" },
-          { status: 400 }
-        );
-      }
-      const artifactEvent: SandboxEvent = {
-        type: "artifact",
-        artifactType: "screenshot",
-        url: body.screenshotUrl,
-        sandboxId: "agent-update",
-        timestamp: Date.now(),
-      };
-      await this.processSandboxEvent(artifactEvent);
+    if (body.message.length > 5000) {
+      return Response.json({ error: "message too long (max 5000 chars)" }, { status: 400 });
     }
 
-    // Notify originating bot via callback
+    // Validate optional screenshotUrl
+    if (body.screenshotUrl !== undefined && body.screenshotUrl !== null) {
+      if (typeof body.screenshotUrl !== "string") {
+        return Response.json({ error: "screenshotUrl must be a string" }, { status: 400 });
+      }
+      try {
+        const url = new URL(body.screenshotUrl);
+        if (url.protocol !== "https:") {
+          return Response.json({ error: "screenshotUrl must be HTTPS" }, { status: 400 });
+        }
+      } catch {
+        return Response.json({ error: "screenshotUrl must be a valid URL" }, { status: 400 });
+      }
+    }
+
+    const message = body.message;
+    const screenshotUrl = typeof body.screenshotUrl === "string" ? body.screenshotUrl : undefined;
+    const now = Date.now();
+    const sandbox = this.repository.getSandbox();
+    const sandboxId = sandbox?.modal_sandbox_id ?? "unknown";
+
+    const event: SandboxEvent = {
+      type: "agent_update",
+      message,
+      screenshotUrl,
+      sandboxId,
+      timestamp: now,
+    };
+
+    // Store the event
+    const eventId = generateId();
     const processingMessage = this.repository.getProcessingMessage();
-    if (processingMessage) {
-      await this.callbackService.notifyAgentUpdate(
-        processingMessage.id,
-        body.message,
-        body.screenshotUrl
+    const messageId = processingMessage?.id ?? null;
+    this.repository.createEvent({
+      id: eventId,
+      type: "agent_update",
+      data: JSON.stringify(event),
+      messageId,
+      createdAt: now,
+    });
+
+    // Broadcast to WebSocket clients
+    this.broadcastMessage({ type: "sandbox_event", event });
+
+    // Forward to callback service (Slack/Linear)
+    if (messageId) {
+      this.ctx.waitUntil(
+        this.callbackService.notifyAgentUpdate(messageId, message, screenshotUrl).catch((err) => {
+          this.log.error("callback.agent_update.error", {
+            message_id: messageId,
+            error: err instanceof Error ? err : String(err),
+          });
+        })
       );
     }
 
+    return Response.json({ status: "ok" });
+  }
+
+  /**
+   * Handle a preview URL published by an agent (via the publish-preview tool).
+   *
+   * Validates the incoming payload and synthesises a `preview_url` sandbox
+   * event, which is processed by `SessionSandboxEventProcessor` to upsert the
+   * artifact and broadcast `artifact_created` to connected clients.
+   */
+  private async handlePreviewUrl(request: Request): Promise<Response> {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    if (typeof body.url !== "string" || !body.url) {
+      return Response.json({ error: "url is required" }, { status: 400 });
+    }
+    if (typeof body.label !== "string" || !body.label || body.label.length > 64) {
+      return Response.json(
+        { error: "label is required and must be <= 64 characters" },
+        { status: 400 }
+      );
+    }
+    const validStatuses = ["active", "outdated", "stopped"];
+    const status = typeof body.status === "string" ? body.status : "active";
+    if (!validStatuses.includes(status)) {
+      return Response.json(
+        { error: "status must be active, outdated, or stopped" },
+        { status: 400 }
+      );
+    }
+
+    try {
+      new URL(body.url as string);
+    } catch {
+      return Response.json({ error: "url must be a valid URL" }, { status: 400 });
+    }
+
+    const sandbox = this.repository.getSandbox();
+    const sandboxId = sandbox?.modal_sandbox_id ?? "unknown";
+    const now = Date.now();
+
+    const event: SandboxEvent = {
+      type: "preview_url",
+      url: body.url as string,
+      label: body.label as string,
+      repo: typeof body.repo === "string" ? body.repo : undefined,
+      status: status as "active" | "outdated" | "stopped",
+      sandboxId,
+      timestamp: now,
+    };
+
+    await this.processSandboxEvent(event);
+    return Response.json({ status: "ok" });
+  }
+
+  /**
+   * Handle code-server started notification from the sandbox.
+   *
+   * This endpoint is called by the sandbox supervisor (not an agent tool) over
+   * an authenticated server-to-server channel.  The session-scoped password is
+   * delivered to connected WebSocket clients but is NOT persisted.
+   */
+  private async handleCodeServerReady(request: Request): Promise<Response> {
+    const body = (await request.json()) as Record<string, unknown>;
+
+    if (typeof body.url !== "string" || !body.url) {
+      return Response.json({ error: "url is required" }, { status: 400 });
+    }
+    if (typeof body.password !== "string" || !body.password) {
+      return Response.json({ error: "password is required" }, { status: 400 });
+    }
+
+    const sandbox = this.repository.getSandbox();
+    const sandboxId =
+      (body.sandboxId as string | undefined) ?? sandbox?.modal_sandbox_id ?? "unknown";
+    const now = Date.now();
+
+    const event: SandboxEvent = {
+      type: "code_server_ready",
+      url: body.url as string,
+      password: body.password as string,
+      sandboxId,
+      timestamp: now,
+    };
+
+    await this.processSandboxEvent(event);
     return Response.json({ status: "ok" });
   }
 
@@ -1838,11 +2000,24 @@ export class SessionAgent extends Agent<Env> {
       body: string;
       baseBranch?: string;
       headBranch?: string;
+      draft?: boolean;
+      repoOwner?: string;
+      repoName?: string;
     };
 
     const session = this.getSession();
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    if (
+      (body.repoOwner && body.repoOwner.toLowerCase() !== session.repo_owner.toLowerCase()) ||
+      (body.repoName && body.repoName.toLowerCase() !== session.repo_name.toLowerCase())
+    ) {
+      return Response.json(
+        { error: "Requested PR repository does not match session primary repository" },
+        { status: 403 }
+      );
     }
 
     const promptingParticipantResult = await this.participantService.getPromptingParticipantForPR();
@@ -1881,6 +2056,8 @@ export class SessionAgent extends Agent<Env> {
       ...body,
       baseBranch: body.baseBranch || session.base_branch,
       promptingUserId: promptingParticipant.user_id,
+      promptingScmLogin: promptingParticipant.scm_login,
+      promptingScmName: promptingParticipant.scm_name,
       promptingAuth: authResolution.auth,
       sessionUrl,
     });
@@ -1893,7 +2070,57 @@ export class SessionAgent extends Agent<Env> {
       prNumber: result.prNumber,
       prUrl: result.prUrl,
       state: result.state,
+      authMode: result.authMode,
+      oauthSignInRequired: result.oauthSignInRequired,
     });
+  }
+
+  /**
+   * Push commits to the remote branch without creating a PR.
+   * Used by sandboxes to push follow-up commits after a PR already exists.
+   */
+  private async handleGitPush(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      headBranch?: string;
+    };
+
+    const session = this.getSession();
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    let pushAuth: GitPushAuthContext;
+    try {
+      pushAuth = await this.sourceControlProvider.generatePushAuth();
+    } catch (error) {
+      this.log.error("git_push.auth_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json({ error: "Failed to generate push authentication" }, { status: 500 });
+    }
+
+    const headBranch = body.headBranch || session.branch_name;
+    if (!headBranch) {
+      return Response.json({ error: "headBranch is required" }, { status: 400 });
+    }
+
+    const pushSpec = this.sourceControlProvider.buildGitPushSpec({
+      owner: session.repo_owner,
+      name: session.repo_name,
+      sourceRef: "HEAD",
+      targetBranch: headBranch,
+      auth: pushAuth,
+      force: true,
+    });
+
+    const pushResult = await this.pushBranchToRemote(headBranch, pushSpec);
+    if (!pushResult.success) {
+      this.log.warn("git_push.failed", { branch: headBranch, error: pushResult.error });
+      return Response.json({ error: pushResult.error }, { status: 500 });
+    }
+
+    this.log.info("git_push.success", { branch: headBranch });
+    return Response.json({ success: true, branch: headBranch });
   }
 
   private parseArtifactMetadata(
@@ -2109,10 +2336,15 @@ export class SessionAgent extends Agent<Env> {
       return Response.json({ error: "No owner participant found" }, { status: 404 });
     }
 
+    const sessionRepos = this.repository
+      .listSessionRepos()
+      .map((repo) => this.mapRepoRowToScope(repo));
+
     const context: SpawnContext = {
       repoOwner: session.repo_owner,
       repoName: session.repo_name,
       repoId: session.repo_id,
+      sessionRepos,
       model: session.model,
       reasoningEffort: session.reasoning_effort ?? null,
       owner: {

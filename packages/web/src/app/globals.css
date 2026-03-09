@@ -14,25 +14,25 @@
 
 :root {
   /* Core backgrounds */
-  --background: #f8f8f6;
-  --foreground: #1a1a1a;
+  --background: #ffffff;
+  --foreground: #333335;
 
   /* Card/surface backgrounds */
-  --card: #f8f8f6;
-  --card-foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #333335;
 
-  /* Primary (inverted button style) */
-  --primary: #1a1a1a;
+  /* Primary (Axios HQ blue) */
+  --primary: #2257da;
   --primary-foreground: #ffffff;
 
-  /* Accent color (warm brown) */
-  --accent: #8b7355;
+  /* Accent color (Axios HQ blue) */
+  --accent: #2257da;
   --accent-foreground: #ffffff;
-  --accent-muted: rgba(139, 115, 85, 0.1);
+  --accent-muted: rgba(34, 87, 218, 0.08);
 
   /* Muted/secondary text */
-  --muted: rgba(0, 0, 0, 0.05);
-  --muted-foreground: #666666;
+  --muted: rgba(0, 0, 0, 0.04);
+  --muted-foreground: #737376;
   --secondary-foreground: #999999;
 
   /* Borders */
@@ -43,7 +43,7 @@
   --input: #ffffff;
 
   /* Focus ring */
-  --ring: #8b7355;
+  --ring: #2257da;
 
   /* Success (green) */
   --success: #28c840;
@@ -53,18 +53,18 @@
 /* Dark mode via system preference */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #1a1a1a;
-    --foreground: #f8f8f6;
+    --background: #1a1a1e;
+    --foreground: #f0f0f2;
 
     --card: rgba(255, 255, 255, 0.05);
-    --card-foreground: #f8f8f6;
+    --card-foreground: #f0f0f2;
 
-    --primary: #f8f8f6;
-    --primary-foreground: #1a1a1a;
+    --primary: #4d82f0;
+    --primary-foreground: #ffffff;
 
-    --accent: #a68b6a;
+    --accent: #4d82f0;
     --accent-foreground: #ffffff;
-    --accent-muted: rgba(139, 115, 85, 0.2);
+    --accent-muted: rgba(77, 130, 240, 0.15);
 
     --muted: rgba(255, 255, 255, 0.05);
     --muted-foreground: #999999;
@@ -73,9 +73,9 @@
     --border: rgba(255, 255, 255, 0.1);
     --border-muted: rgba(255, 255, 255, 0.05);
 
-    --input: #1a1a1a;
+    --input: #1a1a1e;
 
-    --ring: #a68b6a;
+    --ring: #4d82f0;
 
     --success: #28c840;
     --success-muted: rgba(40, 200, 64, 0.1);
@@ -84,18 +84,18 @@
 
 /* Dark mode via class (for manual toggle support) */
 .dark {
-  --background: #1a1a1a;
-  --foreground: #f8f8f6;
+  --background: #1a1a1e;
+  --foreground: #f0f0f2;
 
   --card: rgba(255, 255, 255, 0.05);
-  --card-foreground: #f8f8f6;
+  --card-foreground: #f0f0f2;
 
-  --primary: #f8f8f6;
-  --primary-foreground: #1a1a1a;
+  --primary: #4d82f0;
+  --primary-foreground: #ffffff;
 
-  --accent: #a68b6a;
+  --accent: #4d82f0;
   --accent-foreground: #ffffff;
-  --accent-muted: rgba(139, 115, 85, 0.2);
+  --accent-muted: rgba(77, 130, 240, 0.15);
 
   --muted: rgba(255, 255, 255, 0.05);
   --muted-foreground: #999999;
@@ -104,9 +104,9 @@
   --border: rgba(255, 255, 255, 0.1);
   --border-muted: rgba(255, 255, 255, 0.05);
 
-  --input: #1a1a1a;
+  --input: #1a1a1e;
 
-  --ring: #a68b6a;
+  --ring: #4d82f0;
 
   --success: #28c840;
   --success-muted: rgba(40, 200, 64, 0.1);
