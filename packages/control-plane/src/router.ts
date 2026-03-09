@@ -39,6 +39,7 @@ import { reposRoutes } from "./routes/repos";
 import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
+import { mediaRoutes } from "./routes/media";
 
 const logger = createLogger("router");
 
@@ -112,6 +113,7 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/children$/, // POST spawn, GET list
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
+  /^\/api\/media\/upload$/, // Media upload from sandbox
 ];
 
 type CachedScmProvider =
@@ -441,6 +443,9 @@ const routes: Route[] = [
 
   // Automations
   ...automationRoutes,
+
+  // Media upload/download
+  ...mediaRoutes,
 ];
 
 /**
