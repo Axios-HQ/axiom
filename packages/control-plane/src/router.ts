@@ -2,7 +2,7 @@
  * API router for Open-Inspect Control Plane.
  */
 
-import type { Env, CreateSessionRequest, CreateSessionResponse } from "./types";
+import type { Env, CreateSessionRequest, CreateSessionResponse, SandboxEvent } from "./types";
 import { generateId, encryptToken } from "./auth/crypto";
 import { verifyInternalToken } from "./auth/internal";
 import {
@@ -114,6 +114,7 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/children\/[^/]+$/, // GET child detail
   /^\/sessions\/[^/]+\/children\/[^/]+\/cancel$/, // POST cancel child
   /^\/api\/media\/upload$/, // Media upload from sandbox
+  /^\/sessions\/[^/]+\/agent-update$/, // Agent update from sandbox
 ];
 
 type CachedScmProvider =
@@ -424,6 +425,13 @@ const routes: Route[] = [
     method: "POST",
     pattern: parsePattern("/sessions/:id/children/:childId/cancel"),
     handler: handleCancelChild,
+  },
+
+  // Agent update (sandbox-authenticated)
+  {
+    method: "POST",
+    pattern: parsePattern("/sessions/:id/agent-update"),
+    handler: handleAgentUpdate,
   },
 
   // Repository management
@@ -841,6 +849,70 @@ async function handleSessionPrompt(
   );
 
   return response;
+}
+
+async function handleAgentUpdate(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const body = (await request.json()) as { message?: string; screenshotUrl?: string };
+  if (!body.message) {
+    return error("message is required", 400);
+  }
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  // Forward a token event with the message content
+  const tokenEvent: SandboxEvent = {
+    type: "token",
+    content: body.message,
+    messageId: crypto.randomUUID(),
+    sandboxId: "agent-update",
+    timestamp: Date.now(),
+  };
+
+  await stub.fetch(
+    internalRequest(
+      buildSessionInternalUrl(SessionInternalPaths.sandboxEvent),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tokenEvent),
+      },
+      ctx
+    )
+  );
+
+  // If a screenshot URL is provided, also forward an artifact event
+  if (body.screenshotUrl) {
+    const artifactEvent: SandboxEvent = {
+      type: "artifact",
+      artifactType: "screenshot",
+      url: body.screenshotUrl,
+      sandboxId: "agent-update",
+      timestamp: Date.now(),
+    };
+
+    await stub.fetch(
+      internalRequest(
+        buildSessionInternalUrl(SessionInternalPaths.sandboxEvent),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(artifactEvent),
+        },
+        ctx
+      )
+    );
+  }
+
+  return json({ status: "ok" });
 }
 
 async function handleSessionStop(
