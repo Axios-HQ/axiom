@@ -104,6 +104,3 @@ terraform/environments/production/.terraform*
 
 # OpenNext (Cloudflare web deployment)
 .open-next/
-
-# Claude memory (local only)
-.claude/
