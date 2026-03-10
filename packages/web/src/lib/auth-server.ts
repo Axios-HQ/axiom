@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { auth } from "./auth";
+import { getAuth } from "./auth";
 
 const GITHUB_LOGIN_TIMEOUT_MS = 5000;
 
@@ -22,6 +22,7 @@ type SessionWithUserId =
  */
 export async function getSession(requestHeaders?: Headers) {
   const hdrs = requestHeaders ?? (await headers());
+  const auth = await getAuth();
   const session = await auth.api.getSession({
     headers: hdrs,
   });
@@ -43,6 +44,7 @@ export async function getGitHubAccessToken(
   // In better-auth, the account access token is available via listUserAccounts
   // or we can query the account table directly via the auth API
   try {
+    const auth = await getAuth();
     const accounts = await auth.api.listUserAccounts({
       headers: hdrs,
     });
@@ -122,6 +124,7 @@ export async function requireRole(
 
   // For admin role, check active organization membership
   try {
+    const auth = await getAuth();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const orgSession = await (auth.api as any).getFullOrganization({
       headers: hdrs,

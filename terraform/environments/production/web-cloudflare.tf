@@ -76,6 +76,11 @@ resource "local_file" "web_app_wrangler_production" {
     directory = ".open-next/assets"
     binding = "ASSETS"
 
+    [[d1_databases]]
+    binding = "AUTH_DB"
+    database_id = "${cloudflare_d1_database.main.id}"
+    database_name = "open-inspect-${local.name_suffix}"
+
     [[services]]
     binding = "CONTROL_PLANE_WORKER"
     service = "open-inspect-control-plane-${local.name_suffix}"
