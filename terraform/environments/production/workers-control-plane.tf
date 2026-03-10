@@ -87,19 +87,19 @@ module "control_plane_worker" {
   durable_objects = [
     { binding_name = "SESSION", class_name = "SessionAgent" },
     { binding_name = "SCHEDULER", class_name = "SchedulerDO" },
+    { binding_name = "SANDBOX", class_name = "SandboxContainer" },
   ]
 
-  container_bindings = var.sandbox_provider == "cloudflare" ? [
-    { binding_name = "SANDBOX", class_name = "SandboxContainer" }
-  ] : []
+  container_bindings = []
 
   enable_durable_object_bindings = var.enable_durable_object_bindings
 
-  compatibility_date  = "2024-09-23"
+  compatibility_date  = "2025-09-23"
   compatibility_flags = ["nodejs_compat"]
-  migration_tag       = "v2"
-  migration_old_tag   = "v1"
-  new_sqlite_classes  = ["SchedulerDO"]
+  migration_tag       = "v3"
+  migration_old_tag   = "v2"
+  new_sqlite_classes  = ["SandboxContainer"]
+  renamed_classes     = []
 
   cron_triggers = ["* * * * *"]
 

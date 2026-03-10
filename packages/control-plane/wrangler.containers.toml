@@ -1,0 +1,86 @@
+# Comprehensive wrangler config for Cloudflare Containers deployment.
+#
+# This config mirrors all Terraform-managed bindings PLUS the [[containers]]
+# block that Terraform can't express. Secrets are set separately via
+# `wrangler secret bulk` in the deploy script — they persist at the worker level.
+#
+# Usage: ./scripts/deploy-containers.sh
+
+account_id = "9c23776e228bd86f9ce669791dc4b82e"
+name = "open-inspect-control-plane-axiom"
+main = "dist/index.js"
+compatibility_date = "2025-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ==================== Containers ====================
+
+[[containers]]
+class_name = "SandboxContainer"
+image = "../sandbox/Dockerfile"
+max_instances = 10
+
+# ==================== Durable Objects ====================
+
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionAgent"
+
+[[durable_objects.bindings]]
+name = "SCHEDULER"
+class_name = "SchedulerDO"
+
+[[durable_objects.bindings]]
+name = "SANDBOX"
+class_name = "SandboxContainer"
+
+# ==================== Migrations ====================
+# NOTE: This migration is for the SandboxContainer addition.
+# Previous migrations (v1->v2) were handled by Terraform.
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["SandboxContainer"]
+
+# ==================== KV Namespaces ====================
+
+[[kv_namespaces]]
+binding = "REPOS_CACHE"
+id = "8126febb0e7949eeb096ccf016008e02"
+
+# ==================== D1 Databases ====================
+
+[[d1_databases]]
+binding = "DB"
+database_name = "open-inspect-axiom"
+database_id = "da0fe8f6-a901-48fa-8824-c6adff2269bf"
+
+# ==================== R2 Buckets ====================
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "axiom-media"
+
+# ==================== Service Bindings ====================
+
+[[services]]
+binding = "SLACK_BOT"
+service = "open-inspect-slack-bot-axiom"
+
+[[services]]
+binding = "LINEAR_BOT"
+service = "open-inspect-linear-bot-axiom"
+
+# ==================== Plain Text Variables ====================
+
+[vars]
+GITHUB_CLIENT_ID = "Iv23liEAFAb4nzrefZxt"
+WEB_APP_URL = "https://open-inspect-web-axiom.axioshq.workers.dev"
+WORKER_URL = "https://open-inspect-control-plane-axiom.workers.dev"
+MODAL_WORKSPACE = "josh-cisar"
+DEPLOYMENT_NAME = "axiom"
+SANDBOX_PROVIDER = "cloudflare"
+
+# ==================== Cron Triggers ====================
+
+[triggers]
+crons = ["* * * * *"]

@@ -113,6 +113,15 @@ variable "new_sqlite_classes" {
   default     = []
 }
 
+variable "renamed_classes" {
+  description = "DO classes to rename in this migration step. Each entry maps an old class name to a new one."
+  type = list(object({
+    from = string
+    to   = string
+  }))
+  default = []
+}
+
 variable "container_bindings" {
   description = "List of Cloudflare container (Sandbox SDK) bindings"
   type = list(object({
