@@ -90,7 +90,7 @@ module "control_plane_worker" {
   ]
 
   container_bindings = var.sandbox_provider == "cloudflare" ? [
-    { binding_name = "SANDBOX" }
+    { binding_name = "SANDBOX", class_name = "SandboxContainer" }
   ] : []
 
   enable_durable_object_bindings = var.enable_durable_object_bindings

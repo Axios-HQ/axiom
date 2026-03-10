@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { ArchiveIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 
@@ -15,7 +21,7 @@ export function SessionDelete({ sessionId, onDelete }: SessionDeleteProps) {
   const confirmRef = useRef<HTMLDivElement>(null);
 
   const handleDelete = useCallback(
-    async (e: React.MouseEvent) => {
+    async (e: ReactMouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDeleting(true);
@@ -29,13 +35,13 @@ export function SessionDelete({ sessionId, onDelete }: SessionDeleteProps) {
     [sessionId, onDelete]
   );
 
-  const handleClickDelete = useCallback((e: React.MouseEvent) => {
+  const handleClickDelete = useCallback((e: ReactMouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setShowConfirm(true);
   }, []);
 
-  const handleCancel = useCallback((e: React.MouseEvent) => {
+  const handleCancel = useCallback((e: ReactMouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setShowConfirm(false);

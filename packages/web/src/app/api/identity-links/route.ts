@@ -17,12 +17,13 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSession();
+  const requestHeaders = request.headers;
+  const session = await getSession(requestHeaders);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const githubLogin = await getGitHubLogin();
+  const githubLogin = await getGitHubLogin(requestHeaders, session);
   if (!githubLogin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

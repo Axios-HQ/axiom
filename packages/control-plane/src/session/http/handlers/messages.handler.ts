@@ -41,6 +41,14 @@ export interface MessagesHandler {
   listMessages: (url: URL) => Response;
 }
 
+function parsePositiveLimit(value: string | null, defaultLimit: number, maxLimit: number): number {
+  const parsed = Number(value ?? String(defaultLimit));
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return defaultLimit;
+  }
+  return Math.min(parsed, maxLimit);
+}
+
 export function createMessagesHandler(deps: MessagesHandlerDeps): MessagesHandler {
   return {
     async enqueuePrompt(request: Request): Promise<Response> {
@@ -61,7 +69,7 @@ export function createMessagesHandler(deps: MessagesHandlerDeps): MessagesHandle
 
     listEvents(url: URL): Response {
       const cursor = url.searchParams.get("cursor");
-      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 200);
+      const limit = parsePositiveLimit(url.searchParams.get("limit"), 50, 200);
       const type = url.searchParams.get("type");
       const messageId = url.searchParams.get("message_id");
 
@@ -90,7 +98,7 @@ export function createMessagesHandler(deps: MessagesHandlerDeps): MessagesHandle
 
     listMessages(url: URL): Response {
       const cursor = url.searchParams.get("cursor");
-      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
+      const limit = parsePositiveLimit(url.searchParams.get("limit"), 50, 100);
       const status = url.searchParams.get("status");
 
       if (

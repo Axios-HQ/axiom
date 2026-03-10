@@ -8,7 +8,7 @@ function noopHandler(): SessionInternalRouteHandler {
 
 describe("createSessionInternalRoutes", () => {
   it("builds the expected method/path mapping", () => {
-    const routes = createSessionInternalRoutes({
+    const handlers = {
       init: noopHandler(),
       state: noopHandler(),
       prompt: noopHandler(),
@@ -34,38 +34,88 @@ describe("createSessionInternalRoutes", () => {
       gitPush: noopHandler(),
       previewUrl: noopHandler(),
       codeServerReady: noopHandler(),
-    });
+    };
 
-    const methodPathSet = new Set(routes.map((route) => `${route.method} ${route.path}`));
+    const routes = createSessionInternalRoutes(handlers);
 
-    expect(methodPathSet).toEqual(
-      new Set([
-        `POST ${SessionInternalPaths.init}`,
-        `GET ${SessionInternalPaths.state}`,
-        `POST ${SessionInternalPaths.prompt}`,
-        `POST ${SessionInternalPaths.stop}`,
-        `POST ${SessionInternalPaths.sandboxEvent}`,
-        `GET ${SessionInternalPaths.participants}`,
-        `POST ${SessionInternalPaths.participants}`,
-        `GET ${SessionInternalPaths.events}`,
-        `GET ${SessionInternalPaths.artifacts}`,
-        `GET ${SessionInternalPaths.messages}`,
-        `POST ${SessionInternalPaths.createPr}`,
-        `POST ${SessionInternalPaths.wsToken}`,
-        `POST ${SessionInternalPaths.archive}`,
-        `POST ${SessionInternalPaths.unarchive}`,
-        `POST ${SessionInternalPaths.verifySandboxToken}`,
-        `POST ${SessionInternalPaths.openaiTokenRefresh}`,
-        `POST ${SessionInternalPaths.githubTokenRefresh}`,
-        `GET ${SessionInternalPaths.spawnContext}`,
-        `GET ${SessionInternalPaths.childSummary}`,
-        `POST ${SessionInternalPaths.cancel}`,
-        `POST ${SessionInternalPaths.childSessionUpdate}`,
-        `POST ${SessionInternalPaths.agentUpdate}`,
-        `POST ${SessionInternalPaths.gitPush}`,
-        `POST ${SessionInternalPaths.previewUrl}`,
-        `POST ${SessionInternalPaths.codeServerReady}`,
-      ])
-    );
+    expect(routes).toEqual([
+      { method: "POST", path: SessionInternalPaths.init, handler: handlers.init },
+      { method: "GET", path: SessionInternalPaths.state, handler: handlers.state },
+      { method: "POST", path: SessionInternalPaths.prompt, handler: handlers.prompt },
+      { method: "POST", path: SessionInternalPaths.stop, handler: handlers.stop },
+      {
+        method: "POST",
+        path: SessionInternalPaths.sandboxEvent,
+        handler: handlers.sandboxEvent,
+      },
+      {
+        method: "GET",
+        path: SessionInternalPaths.participants,
+        handler: handlers.listParticipants,
+      },
+      {
+        method: "POST",
+        path: SessionInternalPaths.participants,
+        handler: handlers.addParticipant,
+      },
+      { method: "GET", path: SessionInternalPaths.events, handler: handlers.listEvents },
+      {
+        method: "GET",
+        path: SessionInternalPaths.artifacts,
+        handler: handlers.listArtifacts,
+      },
+      {
+        method: "GET",
+        path: SessionInternalPaths.messages,
+        handler: handlers.listMessages,
+      },
+      { method: "POST", path: SessionInternalPaths.createPr, handler: handlers.createPr },
+      { method: "POST", path: SessionInternalPaths.wsToken, handler: handlers.wsToken },
+      { method: "POST", path: SessionInternalPaths.archive, handler: handlers.archive },
+      { method: "POST", path: SessionInternalPaths.unarchive, handler: handlers.unarchive },
+      {
+        method: "POST",
+        path: SessionInternalPaths.verifySandboxToken,
+        handler: handlers.verifySandboxToken,
+      },
+      {
+        method: "POST",
+        path: SessionInternalPaths.openaiTokenRefresh,
+        handler: handlers.openaiTokenRefresh,
+      },
+      {
+        method: "POST",
+        path: SessionInternalPaths.githubTokenRefresh,
+        handler: handlers.githubTokenRefresh,
+      },
+      {
+        method: "GET",
+        path: SessionInternalPaths.spawnContext,
+        handler: handlers.spawnContext,
+      },
+      {
+        method: "GET",
+        path: SessionInternalPaths.childSummary,
+        handler: handlers.childSummary,
+      },
+      { method: "POST", path: SessionInternalPaths.cancel, handler: handlers.cancel },
+      {
+        method: "POST",
+        path: SessionInternalPaths.childSessionUpdate,
+        handler: handlers.childSessionUpdate,
+      },
+      {
+        method: "POST",
+        path: SessionInternalPaths.agentUpdate,
+        handler: handlers.agentUpdate,
+      },
+      { method: "POST", path: SessionInternalPaths.gitPush, handler: handlers.gitPush },
+      { method: "POST", path: SessionInternalPaths.previewUrl, handler: handlers.previewUrl },
+      {
+        method: "POST",
+        path: SessionInternalPaths.codeServerReady,
+        handler: handlers.codeServerReady,
+      },
+    ]);
   });
 });

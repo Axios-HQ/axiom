@@ -104,10 +104,41 @@ describe("createMessagesHandler", () => {
 
     const response = handler.listEvents(new URL("http://internal/internal/events?limit=10"));
     expect(response.status).toBe(200);
+    expect(messageService.listEvents).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 10,
+      type: null,
+      messageId: null,
+    });
     expect(await response.json()).toEqual({
       events: [{ id: "e1", type: "token", data: { x: 1 }, messageId: "m1", createdAt: 1000 }],
       cursor: "1000",
       hasMore: false,
+    });
+  });
+
+  it("falls back to the default event limit when the query is invalid", () => {
+    const { handler, messageService } = createHandler();
+    vi.mocked(messageService.listEvents).mockReturnValue({
+      events: [],
+      cursor: undefined,
+      hasMore: false,
+    });
+
+    handler.listEvents(new URL("http://internal/internal/events?limit=foo"));
+    expect(messageService.listEvents).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 50,
+      type: null,
+      messageId: null,
+    });
+
+    handler.listEvents(new URL("http://internal/internal/events?limit=-5"));
+    expect(messageService.listEvents).toHaveBeenLastCalledWith({
+      cursor: null,
+      limit: 50,
+      type: null,
+      messageId: null,
     });
   });
 
@@ -176,6 +207,11 @@ describe("createMessagesHandler", () => {
 
     const response = handler.listMessages(new URL("http://internal/internal/messages?limit=10"));
     expect(response.status).toBe(200);
+    expect(messageService.listMessages).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 10,
+      status: null,
+    });
     expect(await response.json()).toEqual({
       messages: [
         {
@@ -191,6 +227,29 @@ describe("createMessagesHandler", () => {
       ],
       cursor: "1000",
       hasMore: false,
+    });
+  });
+
+  it("falls back to the default message limit when the query is invalid", () => {
+    const { handler, messageService } = createHandler();
+    vi.mocked(messageService.listMessages).mockReturnValue({
+      messages: [],
+      cursor: undefined,
+      hasMore: false,
+    });
+
+    handler.listMessages(new URL("http://internal/internal/messages?limit=foo"));
+    expect(messageService.listMessages).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 50,
+      status: null,
+    });
+
+    handler.listMessages(new URL("http://internal/internal/messages?limit=0"));
+    expect(messageService.listMessages).toHaveBeenLastCalledWith({
+      cursor: null,
+      limit: 50,
+      status: null,
     });
   });
 

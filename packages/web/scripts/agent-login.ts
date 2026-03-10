@@ -109,7 +109,7 @@ function usage(): string {
     "  -h, --help                Show this help text",
     "",
     "Environment:",
-    "  AUTH_DATABASE_URL          Required. Path to the better-auth SQLite database.",
+    "  (none)                     Requires a running server at --base-url.",
   ].join("\n");
 }
 
@@ -243,6 +243,13 @@ async function createSessionViaServer(
     userImage: string | null;
   }
 ): Promise<{ sessionToken: string }> {
+  if (!LOCAL_HOSTNAMES.has(baseUrl.hostname)) {
+    throw new Error(
+      "Refusing to bootstrap an email/password session against a non-local server. " +
+        "Run against localhost or switch this script to a real interactive auth flow."
+    );
+  }
+
   // Use a deterministic password for agent-browser sessions
   const agentPassword = "agent-browser-dev-password-not-for-production";
 
@@ -300,14 +307,9 @@ async function createSessionViaServer(
  * Extract the better-auth session token from a Set-Cookie header value.
  */
 function extractSessionToken(setCookieHeader: string): string | null {
-  // Parse all cookies from the header (may contain multiple Set-Cookie values)
-  const cookieParts = setCookieHeader.split(/,(?=[^ ])/);
-  for (const part of cookieParts) {
-    // Match both secure and non-secure cookie names
-    const match = part.match(/(?:__Secure-)?better-auth\.session_token=([^;]+)/);
-    if (match?.[1]) {
-      return decodeURIComponent(match[1]);
-    }
+  const match = setCookieHeader.match(/(?:^|,\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/);
+  if (match?.[1]) {
+    return decodeURIComponent(match[1]);
   }
   return null;
 }

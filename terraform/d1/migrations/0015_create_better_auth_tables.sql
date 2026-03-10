@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS "api_key" (
 CREATE INDEX IF NOT EXISTS idx_session_user_id ON "session"(user_id);
 CREATE INDEX IF NOT EXISTS idx_session_token ON "session"(token);
 CREATE INDEX IF NOT EXISTS idx_account_user_id ON "account"(user_id);
-CREATE INDEX IF NOT EXISTS idx_account_provider ON "account"(provider_id, account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_provider ON "account"(provider_id, account_id);
 CREATE INDEX IF NOT EXISTS idx_member_org_id ON "member"(organization_id);
 CREATE INDEX IF NOT EXISTS idx_member_user_id ON "member"(user_id);
 CREATE INDEX IF NOT EXISTS idx_invitation_org_id ON "invitation"(organization_id);

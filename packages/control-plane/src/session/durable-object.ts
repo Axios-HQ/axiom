@@ -96,6 +96,7 @@ const WS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Statuses that indicate a session has reached a final state and cannot be cancelled. */
 const TERMINAL_STATUSES = new Set(["completed", "archived", "cancelled", "failed"]);
+const DEFAULT_SANDBOX_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class SessionAgent extends Agent<Env> {
   private sqlStorage: SqlStorage;
@@ -451,7 +452,10 @@ export class SessionAgent extends Agent<Env> {
       sessionId,
       inactivity: {
         ...DEFAULT_LIFECYCLE_CONFIG.inactivity,
-        timeoutMs: parseInt(this.env.SANDBOX_INACTIVITY_TIMEOUT_MS || "600000", 10),
+        timeoutMs: parseInt(
+          this.env.SANDBOX_INACTIVITY_TIMEOUT_MS || String(DEFAULT_SANDBOX_INACTIVITY_TIMEOUT_MS),
+          10
+        ),
       },
     };
 

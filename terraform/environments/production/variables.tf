@@ -237,7 +237,7 @@ variable "better_auth_secret" {
 }
 
 variable "auth_database_url" {
-  description = "SQLite database URL for better-auth (e.g., file:./auth.db)"
+  description = "Database URL for better-auth. For local/Vercel SQLite, use file:./auth.db. For Cloudflare deployments, this depends on web_platform and should reference the configured D1-backed auth database setup instead of a local file path."
   type        = string
   sensitive   = true
 }

@@ -48,8 +48,9 @@ locals {
     }] : [],
     # Container bindings (Cloudflare Sandbox SDK)
     [for cb in var.container_bindings : {
-      type = "container"
-      name = cb.binding_name
+      type       = "durable_object_namespace"
+      name       = cb.binding_name
+      class_name = cb.class_name
     }]
   )
 }

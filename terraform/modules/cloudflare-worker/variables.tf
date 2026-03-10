@@ -117,6 +117,7 @@ variable "container_bindings" {
   description = "List of Cloudflare container (Sandbox SDK) bindings"
   type = list(object({
     binding_name = string
+    class_name   = string
   }))
   default = []
 }
