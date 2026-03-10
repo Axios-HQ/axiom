@@ -18,6 +18,7 @@ compatibility_flags = ["nodejs_compat"]
 class_name = "SandboxContainer"
 image = "../sandbox/Dockerfile"
 max_instances = 10
+instance_type = "standard-2"  # 1 vCPU, 6 GiB RAM, 12 GB disk
 
 # ==================== Durable Objects ====================
 

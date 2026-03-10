@@ -39,9 +39,14 @@ export class SandboxContainer extends Container {
     if (url.pathname === "/_sandbox/configure" && request.method === "POST") {
       const env = (await request.json()) as Record<string, string>;
       await this.ctx.storage.put("env", env);
-      // Start the container with these env vars and wait for health check port
+      // Start the container with these env vars and wait for health check port.
+      // Timeout after 120s — git clone + npm install can take a while on cold start.
       await this.startAndWaitForPorts({
         startOptions: { envVars: env, enableInternet: true },
+        cancellationOptions: {
+          instanceGetTimeoutMS: 120_000,
+          portReadyTimeoutMS: 120_000,
+        },
       });
       return new Response(JSON.stringify({ status: "started" }), {
         headers: { "Content-Type": "application/json" },
