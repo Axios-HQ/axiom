@@ -10,6 +10,7 @@ import type {
   ParticipantRole,
   SessionStatus,
 } from "@open-inspect/shared";
+import type { CloudflareSandboxBinding } from "./sandbox/providers/cloudflare-provider";
 
 export type {
   ArtifactType,
@@ -49,6 +50,9 @@ export interface Env {
   // Durable Objects (optional)
   SCHEDULER?: DurableObjectNamespace; // SchedulerDO for automation engine
 
+  // Cloudflare Sandbox SDK binding (optional — only when sandbox_provider == "cloudflare")
+  SANDBOX?: CloudflareSandboxBinding;
+
   // D1 database
   DB: D1Database;
 
@@ -77,6 +81,9 @@ export interface Env {
   IDENTITY_LINK_SYNC_DOMAIN?: string; // Domain allowlist for identity sync (default: axioshq.com)
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
   MODAL_WORKSPACE?: string; // Modal workspace name (used in Modal endpoint URLs)
+
+  // Sandbox provider selection
+  SANDBOX_PROVIDER?: string; // "modal" | "cloudflare" (default: "modal")
 
   // Sandbox lifecycle configuration
   SANDBOX_INACTIVITY_TIMEOUT_MS?: string; // Inactivity timeout in ms (default: 600000 = 10 min)

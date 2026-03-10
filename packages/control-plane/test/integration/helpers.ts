@@ -1,5 +1,5 @@
 import { SELF, env, runInDurableObject } from "cloudflare:test";
-import type { SessionDO } from "../../src/session/durable-object";
+import type { SessionAgent } from "../../src/session/durable-object";
 import { hashToken } from "../../src/auth/crypto";
 
 /**
@@ -43,7 +43,7 @@ export async function queryDO<T>(
   sql: string,
   ...params: unknown[]
 ): Promise<T[]> {
-  return runInDurableObject(stub, (instance: SessionDO) => {
+  return runInDurableObject(stub, (instance: SessionAgent) => {
     return instance.ctx.storage.sql.exec(sql, ...params).toArray() as T[];
   });
 }
@@ -61,7 +61,7 @@ export async function seedEvents(
     createdAt: number;
   }>
 ): Promise<void> {
-  await runInDurableObject(stub, (instance: SessionDO) => {
+  await runInDurableObject(stub, (instance: SessionAgent) => {
     for (const e of events) {
       instance.ctx.storage.sql.exec(
         "INSERT INTO events (id, type, data, message_id, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -90,7 +90,7 @@ export async function seedMessage(
     startedAt?: number;
   }
 ): Promise<void> {
-  await runInDurableObject(stub, (instance: SessionDO) => {
+  await runInDurableObject(stub, (instance: SessionAgent) => {
     instance.ctx.storage.sql.exec(
       "INSERT INTO messages (id, author_id, content, source, status, created_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       msg.id,
@@ -247,7 +247,7 @@ export async function seedSandboxAuth(
 ): Promise<void> {
   const tokenHash = await hashToken(opts.authToken);
 
-  await runInDurableObject(stub, (instance: SessionDO) => {
+  await runInDurableObject(stub, (instance: SessionAgent) => {
     instance.ctx.storage.sql.exec(
       "UPDATE sandbox SET auth_token = ?, auth_token_hash = ?, modal_sandbox_id = ?",
       opts.authToken,
@@ -266,7 +266,7 @@ export async function seedSandboxAuthHash(
 ): Promise<void> {
   const tokenHash = await hashToken(opts.authToken);
 
-  await runInDurableObject(stub, (instance: SessionDO) => {
+  await runInDurableObject(stub, (instance: SessionAgent) => {
     instance.ctx.storage.sql.exec(
       "UPDATE sandbox SET auth_token_hash = ?, auth_token = NULL, modal_sandbox_id = ?",
       tokenHash,

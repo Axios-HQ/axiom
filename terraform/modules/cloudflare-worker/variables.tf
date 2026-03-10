@@ -113,6 +113,15 @@ variable "new_sqlite_classes" {
   default     = []
 }
 
+variable "container_bindings" {
+  description = "List of Cloudflare container (Sandbox SDK) bindings"
+  type = list(object({
+    binding_name = string
+    class_name   = string
+  }))
+  default = []
+}
+
 variable "cron_triggers" {
   description = "List of cron expressions for the worker's scheduled() handler"
   type        = list(string)

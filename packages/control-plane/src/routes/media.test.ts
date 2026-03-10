@@ -132,7 +132,7 @@ describe("media routes", () => {
   });
 
   describe("GET /api/media/:key", () => {
-    it("returns the stored object with correct content type", async () => {
+    it("returns the stored object with correct content type and security headers", async () => {
       const env = createMockEnv();
       const uploadRoute = findRoute("POST", "/api/media/upload")!;
       const downloadRoute = findRoute("GET", "/api/media/test-key")!;
@@ -156,6 +156,8 @@ describe("media routes", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Type")).toBe("image/png");
       expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(response.headers.get("Content-Disposition")).toBe("inline");
     });
 
     it("returns 404 for non-existent key", async () => {

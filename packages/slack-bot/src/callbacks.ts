@@ -7,6 +7,7 @@ import type { Env, CompletionCallback, UpdateCallback } from "./types";
 import { extractAgentResponse } from "./completion/extractor";
 import { buildCompletionBlocks, getFallbackText } from "./completion/blocks";
 import { postMessage, removeReaction } from "./utils/slack-client";
+import { timingSafeEqual } from "@open-inspect/shared";
 import { createLogger } from "./logger";
 
 const log = createLogger("callback");
@@ -40,7 +41,7 @@ async function clearThinkingReaction(
  * Prevents external callers from forging completion callbacks.
  */
 async function verifyCallbackSignature(
-  payload: CompletionCallback,
+  payload: CompletionCallback | UpdateCallback,
   secret: string
 ): Promise<boolean> {
   const { signature, ...data } = payload;
@@ -57,7 +58,7 @@ async function verifyCallbackSignature(
   const expectedHex = Array.from(new Uint8Array(expectedSig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  return signature === expectedHex;
+  return timingSafeEqual(signature, expectedHex);
 }
 
 /**
@@ -186,21 +187,8 @@ callbacksRouter.post("/update", async (c) => {
     return c.json({ error: "not configured" }, 500);
   }
 
-  const { signature, ...data } = payload;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(c.env.INTERNAL_CALLBACK_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const expectedSig = await crypto.subtle.sign("HMAC", key, encoder.encode(JSON.stringify(data)));
-  const expectedHex = Array.from(new Uint8Array(expectedSig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  if (signature !== expectedHex) {
+  const isValid = await verifyCallbackSignature(payload, c.env.INTERNAL_CALLBACK_SECRET);
+  if (!isValid) {
     return c.json({ error: "unauthorized" }, 401);
   }
 

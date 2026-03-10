@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useMemo } from "react";
-import { useSession, signOut } from "next-auth/react";
-import useSWR from "swr";
+import { useState, useMemo, useCallback } from "react";
+import { useSession, signOut } from "@/lib/auth-client";
+import useSWR, { useSWRConfig } from "swr";
 import { formatRelativeTime, isInactiveSession } from "@/lib/time";
 import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-media-query";
@@ -17,6 +17,10 @@ import {
   BranchIcon,
 } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { SessionRename } from "@/components/session-rename";
+import { SessionDelete } from "@/components/session-delete";
+import { SessionFolderList, DraggableSession } from "@/components/session-folders";
+import { useSessionFolders } from "@/hooks/use-session-folders";
 import type { Session } from "@open-inspect/shared";
 
 export type SessionItem = Session;
@@ -44,10 +48,63 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
   const [searchQuery, setSearchQuery] = useState("");
   const isMobile = useIsMobile();
 
+  const { mutate } = useSWRConfig();
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+
+  const { folders, createFolder, renameFolder, deleteFolder, addSessionToFolder } =
+    useSessionFolders();
+
+  const toggleFolder = useCallback((folderId: string) => {
+    setExpandedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }, []);
+
   const { data, isLoading: loading } = useSWR<{ sessions: SessionItem[] }>(
     authSession ? "/api/sessions" : null
   );
   const sessions = useMemo(() => data?.sessions ?? [], [data]);
+
+  const handleRename = useCallback(
+    async (sessionId: string, newTitle: string) => {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/rename`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        if (res.ok) {
+          await mutate("/api/sessions");
+        }
+      } catch (error) {
+        console.error("Failed to rename session:", error);
+      }
+    },
+    [mutate]
+  );
+
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}`, {
+          method: "DELETE",
+        });
+        if (res.ok) {
+          await mutate("/api/sessions");
+        }
+      } catch (error) {
+        console.error("Failed to delete session:", error);
+      }
+    },
+    [mutate]
+  );
 
   // Sort sessions by updatedAt (most recent first), filter by search query,
   // and group children under their parent sessions
@@ -103,6 +160,36 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
 
     return { activeSessions: active, inactiveSessions: inactive, childrenMap: children };
   }, [sessions, searchQuery]);
+
+  // Compute folder-aware session sets
+  const folderSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const folder of folders) {
+      for (const id of folder.sessionIds) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }, [folders]);
+
+  const unfiledActiveSessions = useMemo(
+    () => activeSessions.filter((s) => !folderSessionIds.has(s.id)),
+    [activeSessions, folderSessionIds]
+  );
+
+  const unfiledInactiveSessions = useMemo(
+    () => inactiveSessions.filter((s) => !folderSessionIds.has(s.id)),
+    [inactiveSessions, folderSessionIds]
+  );
+
+  // Build a lookup from session id to session item for folder rendering
+  const sessionById = useMemo(() => {
+    const map = new Map<string, SessionItem>();
+    for (const s of [...activeSessions, ...inactiveSessions]) {
+      map.set(s.id, s);
+    }
+    return map;
+  }, [activeSessions, inactiveSessions]);
 
   const currentSessionId = pathname?.startsWith("/session/") ? pathname.split("/")[2] : null;
 
@@ -206,35 +293,80 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">No sessions yet</div>
         ) : (
           <>
-            {/* Active Sessions */}
-            {activeSessions.map((session) => (
-              <SessionWithChildren
-                key={session.id}
-                session={session}
-                childSessions={childrenMap.get(session.id)}
-                currentSessionId={currentSessionId}
-                isMobile={isMobile}
-                onSessionSelect={onSessionSelect}
+            {/* Folders */}
+            {folders.length > 0 && (
+              <SessionFolderList
+                folders={folders}
+                expandedFolderIds={expandedFolderIds}
+                onToggleFolder={toggleFolder}
+                onCreateFolder={createFolder}
+                onRenameFolder={renameFolder}
+                onDeleteFolder={deleteFolder}
+                onDropSession={addSessionToFolder}
+                renderFolderContent={(folder) =>
+                  folder.sessionIds
+                    .map((id) => sessionById.get(id))
+                    .filter(Boolean)
+                    .map((session) => (
+                      <SessionWithChildren
+                        key={session!.id}
+                        session={session!}
+                        childSessions={childrenMap.get(session!.id)}
+                        currentSessionId={currentSessionId}
+                        isMobile={isMobile}
+                        onSessionSelect={onSessionSelect}
+                        editingSessionId={editingSessionId}
+                        onStartEdit={setEditingSessionId}
+                        onFinishEdit={() => setEditingSessionId(null)}
+                        onRename={handleRename}
+                        onDelete={handleDelete}
+                      />
+                    ))
+                }
               />
+            )}
+
+            {/* Active Sessions (unfiled) */}
+            {unfiledActiveSessions.map((session) => (
+              <DraggableSession key={session.id} sessionId={session.id}>
+                <SessionWithChildren
+                  session={session}
+                  childSessions={childrenMap.get(session.id)}
+                  currentSessionId={currentSessionId}
+                  isMobile={isMobile}
+                  onSessionSelect={onSessionSelect}
+                  editingSessionId={editingSessionId}
+                  onStartEdit={setEditingSessionId}
+                  onFinishEdit={() => setEditingSessionId(null)}
+                  onRename={handleRename}
+                  onDelete={handleDelete}
+                />
+              </DraggableSession>
             ))}
 
             {/* Inactive Divider */}
-            {inactiveSessions.length > 0 && (
+            {unfiledInactiveSessions.length > 0 && (
               <>
                 <div className="px-4 py-2 mt-2">
                   <span className="text-xs font-medium text-secondary-foreground uppercase tracking-wide">
                     Inactive
                   </span>
                 </div>
-                {inactiveSessions.map((session) => (
-                  <SessionWithChildren
-                    key={session.id}
-                    session={session}
-                    childSessions={childrenMap.get(session.id)}
-                    currentSessionId={currentSessionId}
-                    isMobile={isMobile}
-                    onSessionSelect={onSessionSelect}
-                  />
+                {unfiledInactiveSessions.map((session) => (
+                  <DraggableSession key={session.id} sessionId={session.id}>
+                    <SessionWithChildren
+                      session={session}
+                      childSessions={childrenMap.get(session.id)}
+                      currentSessionId={currentSessionId}
+                      isMobile={isMobile}
+                      onSessionSelect={onSessionSelect}
+                      editingSessionId={editingSessionId}
+                      onStartEdit={setEditingSessionId}
+                      onFinishEdit={() => setEditingSessionId(null)}
+                      onRename={handleRename}
+                      onDelete={handleDelete}
+                    />
+                  </DraggableSession>
                 ))}
               </>
             )}
@@ -251,12 +383,22 @@ function SessionWithChildren({
   currentSessionId,
   isMobile,
   onSessionSelect,
+  editingSessionId,
+  onStartEdit,
+  onFinishEdit,
+  onRename,
+  onDelete,
 }: {
   session: SessionItem;
   childSessions?: SessionItem[];
   currentSessionId: string | null;
   isMobile: boolean;
   onSessionSelect?: () => void;
+  editingSessionId: string | null;
+  onStartEdit: (id: string) => void;
+  onFinishEdit: () => void;
+  onRename: (sessionId: string, newTitle: string) => Promise<void>;
+  onDelete: (sessionId: string) => Promise<void>;
 }) {
   return (
     <>
@@ -265,6 +407,11 @@ function SessionWithChildren({
         isActive={session.id === currentSessionId}
         isMobile={isMobile}
         onSessionSelect={onSessionSelect}
+        isEditing={editingSessionId === session.id}
+        onStartEdit={() => onStartEdit(session.id)}
+        onFinishEdit={onFinishEdit}
+        onRename={onRename}
+        onDelete={onDelete}
       />
       {childSessions &&
         childSessions.map((child) => (
@@ -285,11 +432,21 @@ function SessionListItem({
   isActive,
   isMobile,
   onSessionSelect,
+  isEditing,
+  onStartEdit,
+  onFinishEdit,
+  onRename,
+  onDelete,
 }: {
   session: SessionItem;
   isActive: boolean;
   isMobile: boolean;
   onSessionSelect?: () => void;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onFinishEdit: () => void;
+  onRename: (sessionId: string, newTitle: string) => Promise<void>;
+  onDelete: (sessionId: string) => Promise<void>;
 }) {
   const timestamp = session.updatedAt || session.createdAt;
   const relativeTime = formatRelativeTime(timestamp);
@@ -300,16 +457,34 @@ function SessionListItem({
   return (
     <Link
       href={buildSessionHref(session)}
-      onClick={() => {
+      onClick={(e) => {
+        if (isEditing) {
+          e.preventDefault();
+          return;
+        }
         if (isMobile) {
           onSessionSelect?.();
         }
       }}
-      className={`block px-4 py-2.5 border-l-2 transition ${
+      className={`group relative block px-4 py-2.5 border-l-2 transition ${
         isActive ? "border-l-accent bg-accent-muted" : "border-l-transparent hover:bg-muted"
       }`}
     >
-      <div className="truncate text-sm font-medium text-foreground">{displayTitle}</div>
+      <div className="flex items-center gap-1">
+        <div className="flex-1 min-w-0">
+          <SessionRename
+            sessionId={session.id}
+            currentTitle={displayTitle}
+            isEditing={isEditing}
+            onStartEdit={onStartEdit}
+            onFinishEdit={onFinishEdit}
+            onRename={onRename}
+          />
+        </div>
+        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <SessionDelete sessionId={session.id} onDelete={onDelete} />
+        </div>
+      </div>
       <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
         <span>{relativeTime}</span>
         <span>·</span>

@@ -29,7 +29,8 @@ resource "null_resource" "web_app_cloudflare_secrets" {
   triggers = {
     secrets_hash = sha256(join(",", [
       var.github_client_secret,
-      var.nextauth_secret,
+      var.better_auth_secret,
+      var.auth_database_url,
       var.internal_callback_secret,
     ]))
   }
@@ -43,7 +44,8 @@ resource "null_resource" "web_app_cloudflare_secrets" {
       CLOUDFLARE_ACCOUNT_ID    = var.cloudflare_account_id
       WORKER_NAME              = "open-inspect-web-${local.name_suffix}"
       GITHUB_CLIENT_SECRET     = var.github_client_secret
-      NEXTAUTH_SECRET          = var.nextauth_secret
+      BETTER_AUTH_SECRET       = var.better_auth_secret
+      AUTH_DATABASE_URL        = var.auth_database_url
       INTERNAL_CALLBACK_SECRET = var.internal_callback_secret
     }
   }
@@ -64,7 +66,7 @@ resource "local_file" "web_app_wrangler_production" {
 
     [vars]
     GITHUB_CLIENT_ID = "${var.github_client_id}"
-    NEXTAUTH_URL = "${local.web_app_url}"
+    BETTER_AUTH_URL = "${local.web_app_url}"
     CONTROL_PLANE_URL = "${local.control_plane_url}"
     NEXT_PUBLIC_WS_URL = "${local.ws_url}"
     ALLOWED_USERS = "${var.allowed_users}"

@@ -74,7 +74,7 @@ export interface PullRequestServiceDeps {
 
 /**
  * Orchestrates branch push and PR creation for a session.
- * Participant lookup and token resolution are handled by SessionDO.
+ * Participant lookup and token resolution are handled by SessionAgent.
  */
 export class SessionPullRequestService {
   constructor(private readonly deps: PullRequestServiceDeps) {}

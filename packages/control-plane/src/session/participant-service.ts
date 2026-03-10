@@ -1,7 +1,7 @@
 /**
  * ParticipantService - Participant CRUD and SCM OAuth token management.
  *
- * Extracted from SessionDO to reduce its size. Handles:
+ * Extracted from SessionAgent to reduce its size. Handles:
  * - Creating and looking up participants
  * - SCM OAuth token refresh (GitHub, Bitbucket, etc.)
  * - Resolving auth context for PR creation

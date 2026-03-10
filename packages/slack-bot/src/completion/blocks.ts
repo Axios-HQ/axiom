@@ -12,6 +12,8 @@ interface SlackBlock {
   type: string;
   text?: { type: string; text: string };
   elements?: Array<{ type: string; text?: unknown; url?: string; action_id?: string }>;
+  image_url?: string;
+  alt_text?: string;
 }
 
 /**

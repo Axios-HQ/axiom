@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { useSession, signIn } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { SessionSidebar } from "./session-sidebar";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -31,7 +31,7 @@ interface SidebarLayoutProps {
 }
 
 export function SidebarLayout({ children }: SidebarLayoutProps) {
-  const { data: session, status } = useSession();
+  const { data: session, isPending } = useSession();
   const router = useRouter();
   const sidebar = useSidebar();
   const isMobile = useIsMobile();
@@ -43,13 +43,13 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
   }, [isMobile, router, sidebar]);
 
   useGlobalShortcuts({
-    enabled: status === "authenticated" && Boolean(session),
+    enabled: !isPending && Boolean(session),
     onNewSession: handleNewSession,
     onToggleSidebar: sidebar.toggle,
   });
 
   // Show loading state
-  if (status === "loading") {
+  if (isPending) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
@@ -61,13 +61,15 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
   if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-8">
-        <img src="/axiom-logo.png" alt="Axiom" className="h-16" />
+        <img src="/axiom-logo.svg" alt="Axiom" className="w-80 mb-2" />
         <div className="text-center">
           <h1 className="text-2xl font-semibold text-foreground mb-2">Axiom</h1>
-          <p className="text-muted-foreground max-w-md">Background coding agent for Axios HQ</p>
+          <p className="text-muted-foreground max-w-md">
+            Background AI agent for Axios HQ. Optimize. Refactor. Ship.
+          </p>
         </div>
         <button
-          onClick={() => signIn("github")}
+          onClick={() => signIn.social({ provider: "github" })}
           className="flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded font-medium hover:opacity-90 transition"
         >
           <GitHubIcon className="w-5 h-5" />

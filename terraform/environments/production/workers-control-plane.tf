@@ -60,6 +60,7 @@ module "control_plane_worker" {
     { name = "WORKER_URL", value = local.control_plane_url },
     { name = "MODAL_WORKSPACE", value = var.modal_workspace },
     { name = "DEPLOYMENT_NAME", value = var.deployment_name },
+    { name = "SANDBOX_PROVIDER", value = var.sandbox_provider },
   ]
 
   secrets = [
@@ -84,9 +85,13 @@ module "control_plane_worker" {
   ]
 
   durable_objects = [
-    { binding_name = "SESSION", class_name = "SessionDO" },
+    { binding_name = "SESSION", class_name = "SessionAgent" },
     { binding_name = "SCHEDULER", class_name = "SchedulerDO" },
   ]
+
+  container_bindings = var.sandbox_provider == "cloudflare" ? [
+    { binding_name = "SANDBOX", class_name = "SandboxContainer" }
+  ] : []
 
   enable_durable_object_bindings = var.enable_durable_object_bindings
 

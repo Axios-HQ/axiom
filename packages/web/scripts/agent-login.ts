@@ -1,15 +1,19 @@
 /**
- * agent-login — provision a NextAuth session cookie for agent-browser.
+ * agent-login — provision a better-auth session cookie for agent-browser.
  *
- * Open-Inspect uses NextAuth v4 with JWT-only sessions (no DB adapter).
- * The session cookie IS the encrypted JWT.  We mint one using NextAuth's
- * own `encode()`, then inject it into a persistent agent-browser session.
+ * Open-Inspect uses better-auth with database-backed sessions. This script
+ * creates a session by calling the sign-in endpoint on the running dev server,
+ * then injects the resulting session cookie into a persistent agent-browser
+ * session.
+ *
+ * The script signs in by POSTing to the running server's internal sign-in
+ * endpoint. If the server is not running, it will fail.
  *
  * Usage:
  *   pnpm --filter @open-inspect/web agent:login -- [options]
  *
  * Requires:
- *   - NEXTAUTH_SECRET env var (same value the running dev server uses)
+ *   - A running dev server at the base URL
  *   - agent-browser CLI on PATH
  */
 
@@ -18,7 +22,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { encode } from "next-auth/jwt";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,15 +31,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const PORT_REGEX = /^[0-9]{2,5}$/;
-const MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days — NextAuth default
+const SESSION_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 /**
- * NextAuth v4 uses different cookie names depending on the protocol.
- * HTTPS → `__Secure-next-auth.session-token`
- * HTTP  → `next-auth.session-token`
+ * better-auth uses cookie names with a `better-auth` prefix.
+ * HTTPS → `__Secure-better-auth.session_token`
+ * HTTP  → `better-auth.session_token`
  */
 function sessionCookieName(secure: boolean): string {
-  return secure ? "__Secure-next-auth.session-token" : "next-auth.session-token";
+  return secure ? "__Secure-better-auth.session_token" : "better-auth.session_token";
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +56,7 @@ type CliOptions = {
   outputJson: boolean;
   redirect: string | null;
   sessionName: string;
-  // JWT payload fields
+  // User fields
   githubUserId: string;
   githubLogin: string;
   userName: string;
@@ -84,7 +87,7 @@ function usage(): string {
   return [
     "Usage: pnpm --filter @open-inspect/web agent:login -- [options]",
     "",
-    "Provision a NextAuth session cookie for agent-browser so automated",
+    "Provision a better-auth session cookie for agent-browser so automated",
     "browser sessions can access the Open-Inspect web UI.",
     "",
     "Options:",
@@ -95,7 +98,7 @@ function usage(): string {
     "  --name <name>             Display name (default: Agent Browser)",
     "  --email <email>           User email (default: agent-browser@local.test)",
     "  --image <url>             Avatar URL (default: none)",
-    "  --access-token <token>    GitHub access token to embed in the JWT (default: none)",
+    "  --access-token <token>    GitHub access token (default: none)",
     "  --redirect <path>         Redirect path after login (default: /)",
     "  --headed                  Open browser in headed mode",
     "  --agent-arg <flag>        Extra arg forwarded to all agent-browser calls (repeatable)",
@@ -106,7 +109,7 @@ function usage(): string {
     "  -h, --help                Show this help text",
     "",
     "Environment:",
-    "  NEXTAUTH_SECRET           Required. Must match the running dev server's secret.",
+    "  (none)                     Requires a running server at --base-url.",
   ].join("\n");
 }
 
@@ -221,47 +224,94 @@ function assertSafeBaseUrl(baseUrl: string, allowNonLocal: boolean): URL {
 }
 
 // ---------------------------------------------------------------------------
-// JWT minting
+// Session creation via running server
 // ---------------------------------------------------------------------------
 
-async function mintSessionJwt(options: {
-  secret: string;
-  githubUserId: string;
-  githubLogin: string;
-  userName: string;
-  userEmail: string;
-  userImage: string | null;
-  accessToken: string | null;
-}): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-
-  // NextAuth v4 JWT payload — must match the shape produced by the jwt
-  // callback in src/lib/auth.ts.  `encode()` encrypts this as a JWE using
-  // the secret and HKDF-derived key, salted with the cookie name.
-  const token: Record<string, unknown> = {
-    githubUserId: options.githubUserId,
-    githubLogin: options.githubLogin,
-    name: options.userName,
-    email: options.userEmail,
-    picture: options.userImage,
-    sub: options.githubUserId,
-    iat: now,
-    exp: now + MAX_AGE_SECONDS,
-    jti: crypto.randomUUID(),
-  };
-
-  if (options.accessToken) {
-    token.accessToken = options.accessToken;
+/**
+ * Create a session by calling the running server's better-auth sign-up
+ * endpoint with email/password. If the user already exists, falls back
+ * to sign-in. Returns the session token extracted from Set-Cookie headers.
+ *
+ * This uses the email/password flow as a dev convenience. The running server
+ * must be reachable at `baseUrl`.
+ */
+async function createSessionViaServer(
+  baseUrl: URL,
+  options: {
+    userName: string;
+    userEmail: string;
+    userImage: string | null;
+  }
+): Promise<{ sessionToken: string }> {
+  if (!LOCAL_HOSTNAMES.has(baseUrl.hostname)) {
+    throw new Error(
+      "Refusing to bootstrap an email/password session against a non-local server. " +
+        "Run against localhost or switch this script to a real interactive auth flow."
+    );
   }
 
-  // NextAuth v4's server-side `decode()` (called from the session route) does
-  // NOT pass a `salt` — it defaults to `""`.  We must match that here so the
-  // HKDF-derived key is identical on both sides.
-  return encode({
-    token,
-    secret: options.secret,
-    maxAge: MAX_AGE_SECONDS,
+  // Use a deterministic password for agent-browser sessions
+  const agentPassword = "agent-browser-dev-password-not-for-production";
+
+  // Try sign-up first, fall back to sign-in if user exists
+  const signUpUrl = new URL("/api/auth/sign-up/email", baseUrl);
+  const signUpRes = await fetch(signUpUrl.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: options.userName,
+      email: options.userEmail,
+      password: agentPassword,
+      image: options.userImage,
+    }),
+    redirect: "manual",
   });
+
+  let cookieHeader = signUpRes.headers.get("set-cookie");
+
+  if (!cookieHeader || signUpRes.status >= 400) {
+    // User may already exist — try sign-in
+    const signInUrl = new URL("/api/auth/sign-in/email", baseUrl);
+    const signInRes = await fetch(signInUrl.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: options.userEmail,
+        password: agentPassword,
+      }),
+      redirect: "manual",
+    });
+
+    cookieHeader = signInRes.headers.get("set-cookie");
+    if (!cookieHeader) {
+      throw new Error(
+        `Failed to sign in. Status: ${signInRes.status}. ` +
+          "Ensure the dev server is running and accessible."
+      );
+    }
+  }
+
+  // Extract the session token from Set-Cookie header
+  const sessionToken = extractSessionToken(cookieHeader);
+  if (!sessionToken) {
+    throw new Error(
+      "Session cookie not found in server response. " +
+        "The server may not be configured for email/password authentication."
+    );
+  }
+
+  return { sessionToken };
+}
+
+/**
+ * Extract the better-auth session token from a Set-Cookie header value.
+ */
+function extractSessionToken(setCookieHeader: string): string | null {
+  const match = setCookieHeader.match(/(?:^|,\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/);
+  if (match?.[1]) {
+    return decodeURIComponent(match[1]);
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,28 +345,15 @@ async function main() {
   const baseUrl = assertSafeBaseUrl(options.baseUrl, options.allowNonLocal);
   const isSecure = baseUrl.protocol === "https:";
 
-  // --- Resolve NEXTAUTH_SECRET -----------------------------------------------
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    throw new Error(
-      "NEXTAUTH_SECRET is not set. Export it or add it to packages/web/.env " +
-        "and source the file before running this script."
-    );
-  }
-
-  // --- Mint JWT --------------------------------------------------------------
-  const cookieName = sessionCookieName(isSecure);
-  const jwt = await mintSessionJwt({
-    secret,
-    githubUserId: options.githubUserId,
-    githubLogin: options.githubLogin,
+  // --- Create session via running server ------------------------------------
+  const { sessionToken } = await createSessionViaServer(baseUrl, {
     userName: options.userName,
     userEmail: options.userEmail,
     userImage: options.userImage,
-    accessToken: options.accessToken,
   });
 
-  const expiresAtSeconds = Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS;
+  const cookieName = sessionCookieName(isSecure);
+  const expiresAtSeconds = Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS;
   const redirectPath = options.redirect ?? "/";
   const destinationUrl = new URL(redirectPath, baseUrl).toString();
 
@@ -324,8 +361,8 @@ async function main() {
   //
   // Sequence matters: we first navigate to the base URL so that the browser
   // context is initialised with the correct origin, then set our session
-  // cookie (which overwrites whatever NextAuth may have set), and finally
-  // reload so the server sees the valid JWT on the next request.
+  // cookie, and finally reload so the server sees the valid session on the
+  // next request.
   //
   const baseAgentBrowserArgs = ["--session", options.sessionName];
   if (options.headed) {
@@ -336,13 +373,13 @@ async function main() {
   // 1. Navigate to the base URL to bootstrap the browser context.
   runAgentBrowser([...baseAgentBrowserArgs, "open", baseUrl.toString()]);
 
-  // 2. Set the session cookie (overwrites any default NextAuth cookies).
+  // 2. Set the session cookie.
   const cookieArgs = [
     ...baseAgentBrowserArgs,
     "cookies",
     "set",
     cookieName,
-    jwt,
+    sessionToken,
     "--url",
     baseUrl.toString(),
     "--httpOnly",

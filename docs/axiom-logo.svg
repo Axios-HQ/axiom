@@ -1,10 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 120">
-  <style>
-    .logo { font-family: 'Courier New', monospace; font-size: 16px; fill: #2563eb; font-weight: bold; }
-  </style>
-  <text class="logo" x="50" y="30">    _    __  _____ ___  __  __</text>
-  <text class="logo" x="50" y="48">   / \   \ \/ /_ _/ _ \|  \/  |</text>
-  <text class="logo" x="50" y="66">  / _ \   \  / | | | | | |\/| |</text>
-  <text class="logo" x="50" y="84"> / ___ \  /  \ | | |_| | |  | |</text>
-  <text class="logo" x="50" y="102">/_/   \_\/_/\_\___\___/|_|  |_|</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e94560;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#f27121;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e94560;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="200" rx="12" fill="url(#grad)" />
+
+  <text x="300" y="95" text-anchor="middle" font-family="'Courier New', Consolas, monospace" font-size="64" font-weight="bold" fill="url(#text-grad)" letter-spacing="12">
+    AXIOM
+  </text>
+
+  <text x="300" y="130" text-anchor="middle" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#8892b0" letter-spacing="4">
+    BACKGROUND AI AGENT FOR AXIOS HQ
+  </text>
+
+  <text x="300" y="158" text-anchor="middle" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#4a5568" letter-spacing="2">
+    OPTIMIZE &middot; REFACTOR &middot; SHIP
+  </text>
+
+  <line x1="180" y1="140" x2="420" y2="140" stroke="#e94560" stroke-width="0.5" opacity="0.3" />
 </svg>

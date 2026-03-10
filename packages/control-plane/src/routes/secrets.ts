@@ -4,6 +4,7 @@
 
 import { RepoSecretsStore } from "../db/repo-secrets";
 import { GlobalSecretsStore } from "../db/global-secrets";
+import { UserSecretsStore } from "../db/user-secrets";
 import { SecretsValidationError, normalizeKey, validateKey } from "../db/secrets-validation";
 import type { Env } from "../types";
 import { SourceControlProviderError } from "../source-control";
@@ -436,6 +437,180 @@ async function handleDeleteGlobalSecret(
   }
 }
 
+/**
+ * Upsert secrets for a user.
+ */
+async function handleSetUserSecrets(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  if (!env.DB) {
+    return error("Secrets storage is not configured", 503);
+  }
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
+  }
+
+  const userId = match.groups?.userId;
+  if (!userId) {
+    return error("User ID is required");
+  }
+
+  let body: { secrets?: Record<string, string> };
+  try {
+    body = (await request.json()) as { secrets?: Record<string, string> };
+  } catch {
+    return error("Invalid JSON body", 400);
+  }
+
+  if (!body?.secrets || typeof body.secrets !== "object") {
+    return error("Request body must include secrets object", 400);
+  }
+
+  const store = new UserSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
+
+  try {
+    const result = await store.setSecrets(userId, body.secrets);
+
+    logger.info("user.secrets_updated", {
+      event: "user.secrets_updated",
+      user_id: userId,
+      keys_count: result.keys.length,
+      created: result.created,
+      updated: result.updated,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+
+    return json({
+      status: "updated",
+      userId,
+      keys: result.keys,
+      created: result.created,
+      updated: result.updated,
+    });
+  } catch (e) {
+    if (e instanceof SecretsValidationError) {
+      return error(e.message, 400);
+    }
+    logger.error("Failed to update user secrets", {
+      error: e instanceof Error ? e.message : String(e),
+      user_id: userId,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+    return error("Secrets storage unavailable", 503);
+  }
+}
+
+/**
+ * List secret keys for a user.
+ */
+async function handleListUserSecrets(
+  _request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  if (!env.DB) {
+    return error("Secrets storage is not configured", 503);
+  }
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
+  }
+
+  const userId = match.groups?.userId;
+  if (!userId) {
+    return error("User ID is required");
+  }
+
+  const store = new UserSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
+
+  try {
+    const secrets = await store.listSecretKeys(userId);
+
+    logger.info("user.secrets_listed", {
+      event: "user.secrets_listed",
+      user_id: userId,
+      keys_count: secrets.length,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+
+    return json({ userId, secrets });
+  } catch (e) {
+    logger.error("Failed to list user secrets", {
+      error: e instanceof Error ? e.message : String(e),
+      user_id: userId,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+    return error("Secrets storage unavailable", 503);
+  }
+}
+
+/**
+ * Delete a secret for a user.
+ */
+async function handleDeleteUserSecret(
+  _request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  if (!env.DB) {
+    return error("Secrets storage is not configured", 503);
+  }
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
+  }
+
+  const userId = match.groups?.userId;
+  const key = match.groups?.key;
+  if (!userId || !key) {
+    return error("User ID and key are required");
+  }
+
+  const store = new UserSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
+
+  try {
+    const normalizedKey = normalizeKey(key);
+    validateKey(normalizedKey);
+
+    const deleted = await store.deleteSecret(userId, key);
+    if (!deleted) {
+      return error("Secret not found", 404);
+    }
+
+    logger.info("user.secret_deleted", {
+      event: "user.secret_deleted",
+      user_id: userId,
+      key: normalizedKey,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+
+    return json({
+      status: "deleted",
+      userId,
+      key: normalizedKey,
+    });
+  } catch (e) {
+    if (e instanceof SecretsValidationError) {
+      return error(e.message, 400);
+    }
+    logger.error("Failed to delete user secret", {
+      error: e instanceof Error ? e.message : String(e),
+      user_id: userId,
+      request_id: ctx.request_id,
+      trace_id: ctx.trace_id,
+    });
+    return error("Secrets storage unavailable", 503);
+  }
+}
+
 export const secretsRoutes: Route[] = [
   {
     method: "PUT",
@@ -466,5 +641,20 @@ export const secretsRoutes: Route[] = [
     method: "DELETE",
     pattern: parsePattern("/secrets/:key"),
     handler: handleDeleteGlobalSecret,
+  },
+  {
+    method: "PUT",
+    pattern: parsePattern("/users/:userId/secrets"),
+    handler: handleSetUserSecrets,
+  },
+  {
+    method: "GET",
+    pattern: parsePattern("/users/:userId/secrets"),
+    handler: handleListUserSecrets,
+  },
+  {
+    method: "DELETE",
+    pattern: parsePattern("/users/:userId/secrets/:key"),
+    handler: handleDeleteUserSecret,
   },
 ];

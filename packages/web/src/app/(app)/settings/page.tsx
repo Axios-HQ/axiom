@@ -6,6 +6,7 @@ import { useSidebarContext } from "@/components/sidebar-layout";
 import { SettingsNav, type SettingsCategory } from "@/components/settings/settings-nav";
 import { AccountSettings } from "@/components/settings/account-settings";
 import { SecretsSettings } from "@/components/settings/secrets-settings";
+import { UserKeysSettings } from "@/components/settings/user-keys-settings";
 import { ModelsSettings } from "@/components/settings/models-settings";
 import { DataControlsSettings } from "@/components/settings/data-controls-settings";
 import { KeyboardShortcutsSettings } from "@/components/settings/keyboard-shortcuts-settings";
@@ -17,6 +18,7 @@ import { useIsMobile } from "@/hooks/use-media-query";
 
 const CATEGORY_LABELS: Record<SettingsCategory, string> = {
   account: "Account",
+  "api-keys": "API Keys",
   secrets: "Secrets",
   models: "Models",
   images: "Images",
@@ -27,6 +29,7 @@ const CATEGORY_LABELS: Record<SettingsCategory, string> = {
 
 const VALID_CATEGORIES = new Set<string>([
   "account",
+  "api-keys",
   "secrets",
   "models",
   "images",
@@ -61,6 +64,7 @@ export default function SettingsPage() {
   const content = (
     <>
       {activeCategory === "account" && <AccountSettings />}
+      {activeCategory === "api-keys" && <UserKeysSettings />}
       {activeCategory === "secrets" && <SecretsSettings />}
       {activeCategory === "models" && <ModelsSettings />}
       {activeCategory === "images" && <ImagesSettings />}

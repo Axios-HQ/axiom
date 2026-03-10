@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SourceControlProvider } from "../../src/source-control";
-import type { SessionDO } from "../../src/session/durable-object";
+import type { SessionAgent } from "../../src/session/durable-object";
 import { initSession, queryDO, seedMessage } from "./helpers";
 
 function createMockSourceControlProvider(): SourceControlProvider {
@@ -114,7 +114,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec("PRAGMA foreign_keys = OFF");
       instance.ctx.storage.sql.exec(
         "UPDATE messages SET author_id = ? WHERE id = ?",
@@ -160,7 +160,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       (
         instance as unknown as { _sourceControlProvider: SourceControlProvider | null }
       )._sourceControlProvider = createMockSourceControlProvider();
@@ -213,7 +213,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       (
         instance as unknown as { _sourceControlProvider: SourceControlProvider | null }
       )._sourceControlProvider = createMockSourceControlProvider();
@@ -270,7 +270,7 @@ describe("POST /internal/create-pr", () => {
       startedAt: Date.now() - 500,
     });
 
-    await runInDurableObject(stub, (instance: SessionDO) => {
+    await runInDurableObject(stub, (instance: SessionAgent) => {
       instance.ctx.storage.sql.exec(
         "INSERT INTO artifacts (id, type, url, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
         "artifact-pr-existing",

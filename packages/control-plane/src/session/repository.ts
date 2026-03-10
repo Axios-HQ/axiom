@@ -1,7 +1,7 @@
 /**
  * SessionRepository - Database operations for Session Durable Objects.
  *
- * Consolidates all SQL operations from SessionDO into a single class
+ * Consolidates all SQL operations from SessionAgent into a single class
  * to enable unit testing via mock injection and reduce coupling.
  */
 
@@ -428,6 +428,12 @@ export class SessionRepository {
 
   getParticipantByWsTokenHash(tokenHash: string): ParticipantRow | null {
     const result = this.sql.exec(`SELECT * FROM participants WHERE ws_auth_token = ?`, tokenHash);
+    const rows = this.rows<ParticipantRow>(result);
+    return rows[0] ?? null;
+  }
+
+  getOwnerParticipant(): ParticipantRow | null {
+    const result = this.sql.exec("SELECT * FROM participants WHERE role = 'owner' LIMIT 1");
     const rows = this.rows<ParticipantRow>(result);
     return rows[0] ?? null;
   }

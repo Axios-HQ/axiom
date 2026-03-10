@@ -1,89 +1,63 @@
-import type { NextAuthOptions } from "next-auth";
-import GitHubProvider from "next-auth/providers/github";
+import { betterAuth } from "better-auth";
+import { organization } from "better-auth/plugins";
+import { createAuthMiddleware, APIError } from "better-auth/api";
+import { apiKey } from "@better-auth/api-key";
 import { checkAccessAllowed, parseAllowlist } from "./access-control";
 
-// Extend NextAuth types to include GitHub-specific user info
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id?: string; // GitHub user ID
-      login?: string; // GitHub username
-      name?: string | null;
-      email?: string | null;
-      image?: string | null;
-    };
-  }
-}
+const accessConfig = {
+  allowedUsers: parseAllowlist(process.env.ALLOWED_USERS),
+  allowedDomains: parseAllowlist(process.env.ALLOWED_EMAIL_DOMAINS),
+};
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    accessToken?: string;
-    refreshToken?: string;
-    accessTokenExpiresAt?: number; // Unix timestamp in milliseconds
-    githubUserId?: string;
-    githubLogin?: string;
-  }
-}
-
-export const authOptions: NextAuthOptions = {
-  debug: process.env.NODE_ENV === "development" || process.env.NEXTAUTH_DEBUG === "true",
-  providers: [
-    GitHubProvider({
+export const auth = betterAuth({
+  database: {
+    type: "sqlite",
+    url: process.env.AUTH_DATABASE_URL!,
+  },
+  socialProviders: {
+    github: {
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: "read:user user:email repo",
-        },
-      },
+      scope: ["read:user", "user:email", "repo"],
+    },
+  },
+  plugins: [
+    organization({
+      creatorRole: "admin",
     }),
+    apiKey([
+      {
+        configId: "service-keys",
+        defaultPrefix: "oi_",
+        references: "organization",
+      },
+    ]),
   ],
-  callbacks: {
-    async signIn({ profile, user }) {
-      const config = {
-        allowedDomains: parseAllowlist(process.env.ALLOWED_EMAIL_DOMAINS),
-        allowedUsers: parseAllowlist(process.env.ALLOWED_USERS),
-      };
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      // Gate access on social sign-in callback (new accounts + returning users)
+      if (!ctx.path.startsWith("/callback/")) return;
+      const session = ctx.context.newSession ?? ctx.context.session;
+      if (!session?.user) return;
 
-      const githubProfile = profile as { login?: string };
-      const isAllowed = checkAccessAllowed(config, {
-        githubUsername: githubProfile.login,
-        email: user.email ?? undefined,
+      const allowed = checkAccessAllowed(accessConfig, {
+        githubUsername: session.user.name ?? undefined,
+        email: session.user.email ?? undefined,
       });
 
-      if (!isAllowed) {
-        return false;
+      if (!allowed) {
+        throw new APIError("FORBIDDEN", {
+          message: "Your account is not on the access allowlist",
+        });
       }
-      return true;
-    },
-    async jwt({ token, account, profile }) {
-      if (account) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token as string | undefined;
-        // expires_at is in seconds, convert to milliseconds (only set if provided)
-        token.accessTokenExpiresAt = account.expires_at ? account.expires_at * 1000 : undefined;
-      }
-      if (profile) {
-        // GitHub profile includes id (numeric) and login (username)
-        const githubProfile = profile as { id?: number; login?: string };
-        if (githubProfile.id) {
-          token.githubUserId = githubProfile.id.toString();
-        }
-        if (githubProfile.login) {
-          token.githubLogin = githubProfile.login;
-        }
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.githubUserId;
-        session.user.login = token.githubLogin;
-      }
-      return session;
+    }),
+  },
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // 5 minutes
     },
   },
-  pages: {
-    error: "/access-denied",
-  },
-};
+});
+
+export type Session = typeof auth.$Infer.Session;

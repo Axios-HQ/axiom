@@ -600,7 +600,7 @@ function SessionContent({
             {!isOpen && (
               <button
                 onClick={toggle}
-                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition"
                 title={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
                 aria-label={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
               >
@@ -617,7 +617,7 @@ function SessionContent({
               ref={detailsButtonRef}
               type="button"
               onClick={toggleDetails}
-              className="lg:hidden px-3 py-1.5 text-sm text-muted-foreground border border-border-muted hover:text-foreground hover:bg-muted transition"
+              className="lg:hidden px-3 py-1.5 text-sm text-muted-foreground border border-border-muted rounded-lg hover:text-foreground hover:bg-muted transition"
               aria-label="Toggle session details"
               aria-controls="session-details-dialog"
               aria-expanded={isDetailsOpen}
@@ -644,11 +644,11 @@ function SessionContent({
 
       {/* Connection error banner */}
       {(authError || connectionError) && (
-        <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 px-4 py-3 flex items-center justify-between">
-          <p className="text-sm text-red-700 dark:text-red-400">{authError || connectionError}</p>
+        <div className="bg-danger-muted border-b border-danger/20 px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-danger">{authError || connectionError}</p>
           <button
             onClick={reconnect}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition"
+            className="px-3 py-1.5 text-sm font-medium text-white bg-danger hover:bg-danger/90 rounded-lg transition"
           >
             Reconnect
           </button>
@@ -717,7 +717,7 @@ function SessionContent({
               role="dialog"
               aria-modal="true"
               aria-label="Session details"
-              className="absolute inset-x-0 bottom-0 max-h-[85vh] bg-background border-t border-border-muted shadow-xl flex flex-col"
+              className="absolute inset-x-0 bottom-0 max-h-[85vh] bg-background border-t border-border-muted rounded-t-2xl shadow-xl flex flex-col"
               style={{
                 transform: isDetailsOpen ? `translateY(${sheetDragY}px)` : "translateY(100%)",
                 transition: sheetDragY > 0 ? "none" : "transform 200ms ease-in-out",
@@ -952,8 +952,8 @@ function ConnectionStatus({ connected, connecting }: { connected: boolean; conne
   }
 
   return (
-    <span className="flex items-center gap-1 text-xs text-red-600 dark:text-red-500">
-      <span className="w-2 h-2 rounded-full bg-red-500" />
+    <span className="flex items-center gap-1 text-xs text-danger">
+      <span className="w-2 h-2 rounded-full bg-danger" />
       Disconnected
     </span>
   );
@@ -969,7 +969,7 @@ function SandboxStatus({ status }: { status?: string }) {
     ready: "text-success",
     running: "text-accent",
     stopped: "text-muted-foreground",
-    failed: "text-red-600 dark:text-red-500",
+    failed: "text-danger",
   };
 
   return <span className={`text-xs ${colors[status] || colors.pending}`}>Sandbox: {status}</span>;
@@ -989,14 +989,14 @@ function CombinedStatusDot({
   let label: string;
 
   if (!connected && !connecting) {
-    color = "bg-red-500";
+    color = "bg-danger";
     label = "Disconnected";
   } else if (connecting) {
     color = "bg-yellow-500";
     pulse = true;
     label = "Connecting...";
   } else if (sandboxStatus === "failed") {
-    color = "bg-red-500";
+    color = "bg-danger";
     label = `Connected \u00b7 Sandbox: ${sandboxStatus}`;
   } else if (["pending", "warming", "syncing"].includes(sandboxStatus || "")) {
     color = "bg-yellow-500";
@@ -1015,7 +1015,7 @@ function CombinedStatusDot({
 
 function ThinkingIndicator() {
   return (
-    <div className="bg-card p-4 flex items-center gap-2">
+    <div className="bg-card rounded-xl p-4 flex items-center gap-2">
       <span className="inline-block w-2 h-2 bg-accent rounded-full animate-pulse" />
       <span className="text-sm text-muted-foreground">Thinking...</span>
     </div>
@@ -1025,16 +1025,16 @@ function ThinkingIndicator() {
 function TimelineSkeleton() {
   return (
     <div className="space-y-3 py-2 animate-pulse">
-      <div className="bg-card p-4 space-y-2">
+      <div className="bg-card rounded-xl p-4 space-y-2">
         <div className="h-3 w-24 bg-muted rounded" />
         <div className="h-3 w-full bg-muted rounded" />
         <div className="h-3 w-5/6 bg-muted rounded" />
       </div>
-      <div className="bg-accent-muted p-4 ml-8 space-y-2">
+      <div className="bg-accent-muted rounded-xl p-4 ml-8 space-y-2">
         <div className="h-3 w-20 bg-muted rounded" />
         <div className="h-3 w-4/5 bg-muted rounded" />
       </div>
-      <div className="bg-card p-4 space-y-2">
+      <div className="bg-card rounded-xl p-4 space-y-2">
         <div className="h-3 w-32 bg-muted rounded" />
         <div className="h-3 w-3/4 bg-muted rounded" />
       </div>
@@ -1120,7 +1120,7 @@ const EventItem = memo(function EventItem({
       const authorName = isCurrentUser ? "You" : event.author?.name || "Unknown User";
 
       return (
-        <div className="group bg-accent-muted p-4 ml-8">
+        <div className="group bg-accent-muted rounded-xl p-4 ml-8">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               {!isCurrentUser && event.author?.avatar && (
@@ -1132,7 +1132,7 @@ const EventItem = memo(function EventItem({
               <button
                 type="button"
                 onClick={() => handleCopyContent(messageContent)}
-                className="p-1 text-secondary-foreground hover:text-foreground hover:bg-muted/60 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-colors"
+                className="p-1 text-secondary-foreground hover:text-foreground hover:bg-muted/60 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-colors"
                 title={copied ? "Copied" : "Copy markdown"}
                 aria-label={copied ? "Copied" : "Copy markdown"}
               >
@@ -1155,14 +1155,14 @@ const EventItem = memo(function EventItem({
       if (!event.content) return null;
       const messageContent = event.content;
       return (
-        <div className="group bg-card p-4">
+        <div className="group bg-card rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-muted-foreground">Assistant</span>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => handleCopyContent(messageContent)}
-                className="p-1 text-secondary-foreground hover:text-foreground hover:bg-muted opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-colors"
+                className="p-1 text-secondary-foreground hover:text-foreground hover:bg-muted rounded-md opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-colors"
                 title={copied ? "Copied" : "Copy markdown"}
                 aria-label={copied ? "Copied" : "Copy markdown"}
               >
@@ -1189,7 +1189,7 @@ const EventItem = memo(function EventItem({
       // Only show standalone results if they're errors
       if (!event.error) return null;
       return (
-        <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 py-1">
+        <div className="flex items-center gap-2 text-sm text-danger py-1">
           <ErrorIcon className="w-4 h-4" />
           <span className="truncate">{event.error}</span>
           <span className="text-xs text-secondary-foreground ml-auto">{time}</span>
@@ -1207,8 +1207,8 @@ const EventItem = memo(function EventItem({
 
     case "error":
       return (
-        <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-          <span className="w-2 h-2 rounded-full bg-red-500" />
+        <div className="flex items-center gap-2 text-sm text-danger">
+          <span className="w-2 h-2 rounded-full bg-danger" />
           Error{event.error ? `: ${event.error}` : ""}
           <span className="text-xs text-secondary-foreground">{time}</span>
         </div>
@@ -1217,8 +1217,8 @@ const EventItem = memo(function EventItem({
     case "execution_complete":
       if (event.success === false) {
         return (
-          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-            <span className="w-2 h-2 rounded-full bg-red-500" />
+          <div className="flex items-center gap-2 text-sm text-danger">
+            <span className="w-2 h-2 rounded-full bg-danger" />
             Execution failed{event.error ? `: ${event.error}` : ""}
             <span className="text-xs text-secondary-foreground">{time}</span>
           </div>
@@ -1231,6 +1231,20 @@ const EventItem = memo(function EventItem({
           <span className="text-xs text-secondary-foreground">{time}</span>
         </div>
       );
+
+    case "artifact": {
+      if (event.artifactType === "screenshot" && event.url) {
+        return (
+          <div className="py-2">
+            <div className="rounded-xl overflow-hidden border border-border-muted">
+              <img src={event.url} alt="Screenshot" className="w-full" loading="lazy" />
+            </div>
+            <span className="text-xs text-secondary-foreground mt-1 block">{time}</span>
+          </div>
+        );
+      }
+      return null;
+    }
 
     case "agent_update":
       return (

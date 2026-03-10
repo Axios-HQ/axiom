@@ -1,7 +1,7 @@
 /**
  * PresenceService - Presence tracking and typing-triggered sandbox warming.
  *
- * Extracted from SessionDO to reduce its size. Handles:
+ * Extracted from SessionAgent to reduce its size. Handles:
  * - Building presence lists from the WebSocket manager's client registry
  * - Sending presence sync/update messages to individual or all clients
  * - Updating client presence status

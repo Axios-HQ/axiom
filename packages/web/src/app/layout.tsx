@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Axiom",
-  description: "Background coding agent for Axios HQ",
+  description: "Background AI agent for Axios HQ. Optimize. Refactor. Ship.",
   icons: {
     icon: [
       { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },

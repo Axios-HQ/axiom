@@ -230,8 +230,14 @@ variable "modal_api_secret" {
   sensitive   = true
 }
 
-variable "nextauth_secret" {
-  description = "NextAuth.js secret (generate with: openssl rand -base64 32)"
+variable "better_auth_secret" {
+  description = "better-auth secret (generate with: openssl rand -base64 32)"
+  type        = string
+  sensitive   = true
+}
+
+variable "auth_database_url" {
+  description = "Database URL for better-auth. For local/Vercel SQLite, use file:./auth.db. For Cloudflare deployments, this depends on web_platform and should reference the configured D1-backed auth database setup instead of a local file path."
   type        = string
   sensitive   = true
 }
@@ -254,6 +260,17 @@ variable "web_platform" {
 variable "deployment_name" {
   description = "Unique deployment name used in URLs and resource names. Use something unique like your GitHub username or company name (e.g., 'acme', 'johndoe'). This will create URLs like: open-inspect-{deployment_name}.vercel.app"
   type        = string
+}
+
+variable "sandbox_provider" {
+  description = "Sandbox provider: 'modal' (default) or 'cloudflare'"
+  type        = string
+  default     = "modal"
+
+  validation {
+    condition     = contains(["modal", "cloudflare"], var.sandbox_provider)
+    error_message = "sandbox_provider must be 'modal' or 'cloudflare'."
+  }
 }
 
 variable "enable_durable_object_bindings" {

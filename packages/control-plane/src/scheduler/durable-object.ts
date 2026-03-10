@@ -5,7 +5,7 @@
  * trigger requests from the automation CRUD routes. Handles:
  * - Tick: recovery sweep + process overdue automations
  * - Trigger: manual single-automation trigger
- * - RunComplete: callback from SessionDO on execution completion
+ * - RunComplete: callback from SessionAgent on execution completion
  */
 
 import { DurableObject } from "cloudflare:workers";

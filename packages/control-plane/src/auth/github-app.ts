@@ -25,7 +25,7 @@ export const INSTALLATION_TOKEN_CACHE_MAX_TTL_SECONDS = 3600;
 
 const INSTALLATION_TOKEN_CACHE_KEY_PREFIX = "github:installation-token:v1";
 
-interface InstallationTokenCacheBindings {
+export interface InstallationTokenCacheBindings {
   REPOS_CACHE?: KVNamespace;
 }
 

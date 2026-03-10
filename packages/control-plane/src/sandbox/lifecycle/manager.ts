@@ -810,7 +810,7 @@ export class SandboxLifecycleManager {
 
   /**
    * Check if a sandbox spawn is currently in progress.
-   * Used by SessionDO to coordinate spawn decisions.
+   * Used by SessionAgent to coordinate spawn decisions.
    */
   isSpawning(): boolean {
     return this.isSpawningSandbox;
@@ -820,7 +820,7 @@ export class SandboxLifecycleManager {
    * Notify the manager that a sandbox has connected.
    * Resets the in-memory spawning flag to allow future spawns.
    *
-   * Called by SessionDO when sandbox WebSocket connects successfully.
+   * Called by SessionAgent when sandbox WebSocket connects successfully.
    */
   onSandboxConnected(): void {
     this.isSpawningSandbox = false;

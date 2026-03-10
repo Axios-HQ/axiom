@@ -590,6 +590,20 @@ class AgentBridge:
         raw_attachments = cmd.get("attachments")
         attachments = raw_attachments if isinstance(raw_attachments, list) else None
         author_data = cmd.get("author", {})
+
+        # Validate attachments: each must be a dict with a non-empty http(s) URL
+        validated_attachments: list[dict[str, Any]] = []
+        if attachments:
+            for att in attachments:
+                if not isinstance(att, dict):
+                    continue
+                url = att.get("url")
+                if not isinstance(url, str) or not url:
+                    continue
+                if not url.startswith("http://") and not url.startswith("https://"):
+                    continue
+                validated_attachments.append(att)
+
         start_time = time.time()
         outcome = "success"
 

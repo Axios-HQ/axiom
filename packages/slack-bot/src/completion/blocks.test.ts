@@ -162,6 +162,102 @@ describe("buildCompletionBlocks", () => {
     expect(createPrButton).toBeUndefined();
   });
 
+  it("adds a screenshot context block when screenshot artifacts are present", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot1.png",
+          label: "Homepage after changes",
+        },
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot2.png",
+          label: "Settings page",
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) => element.type === "mrkdwn" && element.text === "2 screenshots shared above"
+        )
+    );
+
+    expect(screenshotContextBlocks).toHaveLength(1);
+  });
+
+  it("uses singular screenshot copy when exactly one screenshot artifact is present", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "screenshot",
+          url: "https://example.com/screenshot.png",
+          label: "",
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) => element.type === "mrkdwn" && element.text === "1 screenshot shared above"
+        )
+    );
+
+    expect(screenshotContextBlocks).toHaveLength(1);
+  });
+
+  it("does not include screenshot context when there are no screenshot artifacts", () => {
+    const response: AgentResponse = {
+      ...BASE_RESPONSE,
+      artifacts: [
+        {
+          type: "pr",
+          url: "https://github.com/octocat/hello-world/pull/42",
+          label: "PR #42",
+          metadata: { number: 42 },
+        },
+      ],
+    };
+
+    const blocks = buildCompletionBlocks(
+      "session-123",
+      response,
+      BASE_CONTEXT,
+      "https://app.openinspect.dev"
+    );
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) =>
+            element.type === "mrkdwn" &&
+            typeof element.text === "string" &&
+            element.text.includes("screenshot")
+        )
+    );
+
+    expect(screenshotContextBlocks).toHaveLength(0);
+  });
+
   it("falls back to branch artifact URL when createPrUrl is missing", () => {
     const fallbackUrl = "https://github.com/octocat/hello-world/pull/new/main...feature-branch";
     const response: AgentResponse = {

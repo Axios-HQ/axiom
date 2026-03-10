@@ -107,6 +107,57 @@ class SandboxSupervisor:
             return f"https://{self.vcs_clone_username}:{self.vcs_clone_token}@{self.vcs_host}/{self.repo_owner}/{self.repo_name}.git"
         return f"https://{self.vcs_host}/{self.repo_owner}/{self.repo_name}.git"
 
+    async def _configure_credential_helper(self) -> None:
+        """Replace embedded git credentials with a credential helper that auto-refreshes tokens."""
+        credential_helper = "/app/sandbox/git-credential-helper.sh"
+        gh_wrapper = "/app/sandbox/gh-wrapper.sh"
+
+        # Only configure if credential helper exists (may not in local dev)
+        if not Path(credential_helper).exists():
+            self.log.debug("credential_helper.not_found", path=credential_helper)
+            return
+
+        try:
+            # Configure git to use the credential helper
+            result = await asyncio.create_subprocess_exec(
+                "git",
+                "config",
+                "--global",
+                "credential.helper",
+                credential_helper,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await result.communicate()
+
+            # Remove embedded credentials from the remote URL
+            unauthenticated_url = self._build_repo_url(authenticated=False)
+            if self.repo_path.exists() and (self.repo_path / ".git").exists():
+                result = await asyncio.create_subprocess_exec(
+                    "git",
+                    "remote",
+                    "set-url",
+                    "origin",
+                    unauthenticated_url,
+                    cwd=str(self.repo_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await result.communicate()
+
+            # Symlink gh wrapper if gh CLI is installed
+            gh_path = Path("/usr/bin/gh")
+            gh_local = Path("/usr/local/bin/gh")
+            if gh_path.exists() and Path(gh_wrapper).exists():
+                if gh_local.exists() or gh_local.is_symlink():
+                    gh_local.unlink()
+                gh_local.symlink_to(gh_wrapper)
+                self.log.info("gh_wrapper.installed")
+
+            self.log.info("credential_helper.configured")
+        except Exception as e:
+            self.log.warn("credential_helper.setup_error", exc=e)
+
     async def perform_git_sync(self) -> bool:
         """
         Clone repository if needed, then synchronize with latest changes.
@@ -237,6 +288,9 @@ class SandboxSupervisor:
             stdout, _ = await result.communicate()
             current_sha = stdout.decode().strip()
             self.log.info("git.sync_complete", head_sha=current_sha)
+
+            # Set up credential helper for token auto-refresh
+            await self._configure_credential_helper()
 
             self.git_sync_complete.set()
             return True
@@ -1074,6 +1128,9 @@ class SandboxSupervisor:
                     exit_code=result.returncode,
                 )
 
+            # Set up credential helper for token auto-refresh
+            await self._configure_credential_helper()
+
             self.log.info("git.incremental_sync_complete")
             self.git_sync_complete.set()
             return True
@@ -1129,6 +1186,7 @@ class SandboxSupervisor:
             # Phase 1: Git sync
             if restored_from_snapshot:
                 await self._quick_git_fetch()
+                await self._configure_credential_helper()
                 self.git_sync_complete.set()
                 git_sync_success = True
             elif from_repo_image:

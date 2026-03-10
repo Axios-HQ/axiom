@@ -146,6 +146,7 @@ class SandboxManager:
 
         if config.session_config:
             env_vars["SESSION_CONFIG"] = config.session_config.model_dump_json()
+            env_vars["SESSION_ID"] = config.session_config.session_id
 
         # Determine image to use (priority: session snapshot > repo image > base image)
         if config.snapshot_id:
@@ -441,6 +442,7 @@ class SandboxManager:
                 "REPO_OWNER": repo_owner,
                 "REPO_NAME": repo_name,
                 "RESTORED_FROM_SNAPSHOT": "true",  # Signal to skip git clone
+                "SESSION_ID": session_id,
                 "SESSION_CONFIG": json.dumps(
                     {
                         "session_id": session_id,

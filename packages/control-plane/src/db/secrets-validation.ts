@@ -53,12 +53,13 @@ export function validateValue(value: string): void {
 }
 
 /**
- * Merge global and repo secrets. Repo keys override global keys (case-insensitive).
+ * Merge global, user, and repo secrets. Priority: repo > user > global (case-insensitive keys).
  * Returns the merged record, total byte size, and whether the combined payload exceeds the limit.
  */
 export function mergeSecrets(
   global: Record<string, string>,
   repo: Record<string, string>,
+  user: Record<string, string> = {},
   maxCombinedBytes = 131072
 ): { merged: Record<string, string>; totalBytes: number; exceedsLimit: boolean } {
   const merged: Record<string, string> = {};
@@ -68,7 +69,12 @@ export function mergeSecrets(
     merged[normalizeKey(key)] = value;
   }
 
-  // Repo secrets override global
+  // User secrets override global
+  for (const [key, value] of Object.entries(user)) {
+    merged[normalizeKey(key)] = value;
+  }
+
+  // Repo secrets override user and global
   for (const [key, value] of Object.entries(repo)) {
     merged[normalizeKey(key)] = value;
   }

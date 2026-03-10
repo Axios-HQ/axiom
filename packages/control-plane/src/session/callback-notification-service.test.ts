@@ -303,6 +303,116 @@ describe("CallbackNotificationService", () => {
         })
       );
     });
+    it("skips when no INTERNAL_CALLBACK_SECRET", async () => {
+      const h = createTestHarness({ env: { INTERNAL_CALLBACK_SECRET: undefined } });
+      vi.mocked(h.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123" }),
+        source: "slack",
+      });
+
+      await h.service.notifyAgentUpdate("msg-1", "Working on it...");
+
+      expect(h.log.debug).toHaveBeenCalledWith(
+        "callback.agent_update",
+        expect.objectContaining({
+          message_id: "msg-1",
+          outcome: "skipped",
+          skip_reason: "no_secret",
+        })
+      );
+      expect(
+        (h.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      ).not.toHaveBeenCalled();
+    });
+
+    it("routes to LINEAR_BOT for linear source", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ issueId: "LIN-123" }),
+        source: "linear",
+      });
+
+      const mockResponse = new Response("ok", { status: 200 });
+      vi.mocked(
+        (harness.linearBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      ).mockResolvedValue(mockResponse);
+
+      await harness.service.notifyAgentUpdate("msg-1", "Working on it...");
+
+      const linearFetch = (harness.linearBot as unknown as { fetch: ReturnType<typeof vi.fn> })
+        .fetch;
+      expect(linearFetch).toHaveBeenCalledTimes(1);
+
+      const slackFetch = (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      expect(slackFetch).not.toHaveBeenCalled();
+    });
+
+    it("includes message and screenshotUrl in payload", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123" }),
+        source: "slack",
+      });
+
+      const mockResponse = new Response("ok", { status: 200 });
+      vi.mocked(
+        (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      ).mockResolvedValue(mockResponse);
+
+      await harness.service.notifyAgentUpdate(
+        "msg-1",
+        "Taking a screenshot",
+        "https://example.com/screenshot.png"
+      );
+
+      const fetchMock = (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        sessionId: "session-123",
+        messageId: "msg-1",
+        message: "Taking a screenshot",
+        screenshotUrl: "https://example.com/screenshot.png",
+        context: { channel: "C123" },
+      });
+    });
+
+    it("sets screenshotUrl to null when not provided", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123" }),
+        source: "slack",
+      });
+
+      const mockResponse = new Response("ok", { status: 200 });
+      vi.mocked(
+        (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      ).mockResolvedValue(mockResponse);
+
+      await harness.service.notifyAgentUpdate("msg-1", "Just an update");
+
+      const fetchMock = (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screenshotUrl).toBeNull();
+    });
+
+    it("handles fetch errors gracefully (no throw)", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123" }),
+        source: "slack",
+      });
+
+      vi.mocked(
+        (harness.slackBot as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch
+      ).mockRejectedValue(new Error("network error"));
+
+      // Should not throw
+      await harness.service.notifyAgentUpdate("msg-1", "Update");
+
+      expect(harness.log.warn).toHaveBeenCalledWith(
+        "callback.agent_update",
+        expect.objectContaining({
+          message_id: "msg-1",
+          outcome: "error",
+        })
+      );
+    });
   });
 
   describe("notifyToolCall", () => {

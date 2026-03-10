@@ -119,6 +119,8 @@ async function handleDownload(
     headers: {
       "Content-Type": result.contentType,
       "Cache-Control": "public, max-age=86400, immutable",
+      "Content-Disposition": "inline",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

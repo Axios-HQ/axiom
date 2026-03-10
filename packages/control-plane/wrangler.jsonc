@@ -5,12 +5,12 @@
   "compatibility_date": "2024-12-30",
   "durable_objects": {
     "bindings": [
-      { "name": "SESSION", "class_name": "SessionDO" },
+      { "name": "SESSION", "class_name": "SessionAgent" },
       { "name": "SCHEDULER", "class_name": "SchedulerDO" },
     ],
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SessionDO"] },
+    { "tag": "v1", "new_sqlite_classes": ["SessionAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] },
   ],
   "d1_databases": [

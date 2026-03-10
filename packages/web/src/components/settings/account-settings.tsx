@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/auth-client";
 import useSWR, { mutate } from "swr";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -144,7 +144,7 @@ export function AccountSettings() {
             {session.user.image && (
               <Image
                 src={session.user.image}
-                alt={session.user.login ?? "GitHub avatar"}
+                alt={session.user.name ?? "GitHub avatar"}
                 width={32}
                 height={32}
                 className="rounded-full"
@@ -153,7 +153,7 @@ export function AccountSettings() {
             <div>
               <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                 <GitHubIcon className="w-3.5 h-3.5" />
-                {session.user.login ?? session.user.name}
+                {session.user.name}
               </p>
               {session.user.email && (
                 <p className="text-xs text-muted-foreground">{session.user.email}</p>
