@@ -49,9 +49,7 @@ describe("createSandboxProvider", () => {
     });
 
     it("throws if modal client is not provided", () => {
-      expect(() => createSandboxProvider("modal", {})).toThrow(
-        "Modal client is required"
-      );
+      expect(() => createSandboxProvider("modal", {})).toThrow("Modal client is required");
     });
   });
 
@@ -86,9 +84,9 @@ describe("createSandboxProvider", () => {
 
   describe("unknown provider", () => {
     it("throws for unknown provider name", () => {
-      expect(() =>
-        createSandboxProvider("unknown" as never, {})
-      ).toThrow("Unknown sandbox provider");
+      expect(() => createSandboxProvider("unknown" as never, {})).toThrow(
+        "Unknown sandbox provider"
+      );
     });
   });
 });

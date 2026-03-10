@@ -133,9 +133,7 @@ describe("SlashCommandMenu", () => {
     await user.click(screen.getByText("/model"));
     expect(modelAction).toHaveBeenCalledOnce();
     expect(onCommandSelect).toHaveBeenCalledOnce();
-    expect(onCommandSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "model" })
-    );
+    expect(onCommandSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "model" }));
   });
 
   it("navigates with arrow keys and selects with Enter", async () => {
@@ -160,9 +158,7 @@ describe("SlashCommandMenu", () => {
     await user.keyboard("{Enter}");
 
     expect(stopAction).toHaveBeenCalledOnce();
-    expect(onCommandSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "stop" })
-    );
+    expect(onCommandSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "stop" }));
   });
 
   it("wraps around when navigating past last item", async () => {

@@ -87,9 +87,7 @@ export function SlashCommandMenu({
         }
         case "ArrowUp": {
           e.preventDefault();
-          setActiveIndex((prev) =>
-            prev <= 0 ? filteredCommands.length - 1 : prev - 1
-          );
+          setActiveIndex((prev) => (prev <= 0 ? filteredCommands.length - 1 : prev - 1));
           break;
         }
         case "Enter": {
@@ -146,9 +144,7 @@ export function SlashCommandMenu({
               idx === activeIndex ? "bg-muted" : ""
             }`}
           >
-            <span className="font-medium text-foreground font-mono">
-              /{command.name}
-            </span>
+            <span className="font-medium text-foreground font-mono">/{command.name}</span>
             <span className="text-xs text-muted-foreground">{command.description}</span>
           </button>
         ))}

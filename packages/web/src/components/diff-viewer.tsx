@@ -56,7 +56,11 @@ export function parseUnifiedDiff(diffText: string): DiffFile[] {
       let fileDeletions = 0;
 
       // Parse hunks for this file
-      while (i < lines.length && !lines[i].startsWith("---") && !lines[i].startsWith("diff --git")) {
+      while (
+        i < lines.length &&
+        !lines[i].startsWith("---") &&
+        !lines[i].startsWith("diff --git")
+      ) {
         if (lines[i].startsWith("@@")) {
           const hunkHeader = lines[i];
           const { oldStart, newStart } = parseHunkHeader(hunkHeader);
@@ -165,11 +169,7 @@ export function DiffViewer({ diff, maxLinesPerFile = 2000 }: DiffViewerProps) {
   const files = useMemo(() => parseUnifiedDiff(diff), [diff]);
 
   if (files.length === 0) {
-    return (
-      <div className="text-sm text-muted-foreground px-4 py-3">
-        No changes to display.
-      </div>
-    );
+    return <div className="text-sm text-muted-foreground px-4 py-3">No changes to display.</div>;
   }
 
   return (
@@ -217,12 +217,8 @@ function DiffFileSection({ file, maxLines }: { file: DiffFile; maxLines: number 
           </span>
         )}
         <span className="ml-auto flex items-center gap-2 text-xs font-mono flex-shrink-0">
-          {file.additions > 0 && (
-            <span className="text-green-600">+{file.additions}</span>
-          )}
-          {file.deletions > 0 && (
-            <span className="text-red-600">-{file.deletions}</span>
-          )}
+          {file.additions > 0 && <span className="text-green-600">+{file.additions}</span>}
+          {file.deletions > 0 && <span className="text-red-600">-{file.deletions}</span>}
         </span>
       </button>
 
@@ -232,18 +228,28 @@ function DiffFileSection({ file, maxLines }: { file: DiffFile; maxLines: number 
             <tbody>
               {file.hunks.map((hunk, hunkIdx) => {
                 const linesToRender = isTruncated
-                  ? hunk.lines.slice(0, Math.max(0, maxLines - countPreviousLines(file.hunks, hunkIdx)))
+                  ? hunk.lines.slice(
+                      0,
+                      Math.max(0, maxLines - countPreviousLines(file.hunks, hunkIdx))
+                    )
                   : hunk.lines;
 
                 if (linesToRender.length === 0) return null;
 
                 return (
-                  <HunkSection key={hunkIdx} hunk={{ ...hunk, lines: linesToRender }} hunkHeader={hunk.header} />
+                  <HunkSection
+                    key={hunkIdx}
+                    hunk={{ ...hunk, lines: linesToRender }}
+                    hunkHeader={hunk.header}
+                  />
                 );
               })}
               {isTruncated && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-2 text-center text-muted-foreground bg-muted text-xs">
+                  <td
+                    colSpan={3}
+                    className="px-4 py-2 text-center text-muted-foreground bg-muted text-xs"
+                  >
                     Diff truncated ({totalLines} lines total, showing first {maxLines})
                   </td>
                 </tr>
@@ -284,11 +290,7 @@ function HunkSection({ hunk, hunkHeader }: { hunk: DiffHunk; hunkHeader: string 
 
 function DiffLineRow({ line }: { line: DiffLine }) {
   const bgClass =
-    line.type === "addition"
-      ? "bg-green-500/10"
-      : line.type === "deletion"
-        ? "bg-red-500/10"
-        : "";
+    line.type === "addition" ? "bg-green-500/10" : line.type === "deletion" ? "bg-red-500/10" : "";
 
   const textClass =
     line.type === "addition"
@@ -297,8 +299,7 @@ function DiffLineRow({ line }: { line: DiffLine }) {
         ? "text-red-700 dark:text-red-400"
         : "text-foreground";
 
-  const prefix =
-    line.type === "addition" ? "+" : line.type === "deletion" ? "-" : " ";
+  const prefix = line.type === "addition" ? "+" : line.type === "deletion" ? "-" : " ";
 
   return (
     <tr className={bgClass} data-testid={`diff-line-${line.type}`}>

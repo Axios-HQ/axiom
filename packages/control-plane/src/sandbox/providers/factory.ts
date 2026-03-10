@@ -7,10 +7,7 @@
 import type { SandboxProvider } from "../provider";
 import type { ModalClient } from "../client";
 import { ModalSandboxProvider } from "./modal-provider";
-import {
-  CloudflareSandboxProvider,
-  type CloudflareSandboxBinding,
-} from "./cloudflare-provider";
+import { CloudflareSandboxProvider, type CloudflareSandboxBinding } from "./cloudflare-provider";
 
 /** Supported provider names. */
 export type SandboxProviderName = "modal" | "cloudflare";

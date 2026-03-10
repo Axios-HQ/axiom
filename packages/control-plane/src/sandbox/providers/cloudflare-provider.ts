@@ -36,11 +36,7 @@ export interface CloudflareSandboxInstance {
   /** Unique container ID */
   id: string;
   /** Create a squashfs directory backup stored in R2. */
-  createBackup(opts: {
-    dir: string;
-    name: string;
-    ttl: number;
-  }): Promise<DirectoryBackup>;
+  createBackup(opts: { dir: string; name: string; ttl: number }): Promise<DirectoryBackup>;
   /** Restore a previously created backup as a FUSE overlay mount. */
   restoreBackup(backup: DirectoryBackup): Promise<void>;
 }
@@ -48,10 +44,7 @@ export interface CloudflareSandboxInstance {
 /** Cloudflare Sandbox SDK binding available via env. */
 export interface CloudflareSandboxBinding {
   /** Create a new container. */
-  create(opts: {
-    image: string;
-    env?: Record<string, string>;
-  }): Promise<CloudflareSandboxInstance>;
+  create(opts: { image: string; env?: Record<string, string> }): Promise<CloudflareSandboxInstance>;
   /** Get a handle to an existing container by ID. */
   get(id: string): CloudflareSandboxInstance;
   /** Destroy a running container. */
@@ -106,9 +99,7 @@ export class CloudflareSandboxProvider implements SandboxProvider {
         ...(config.branch ? { GIT_BRANCH: config.branch } : {}),
         ...(config.repoImageId ? { REPO_IMAGE_ID: config.repoImageId } : {}),
         ...(config.repoImageSha ? { REPO_IMAGE_SHA: config.repoImageSha } : {}),
-        ...(config.opencodeSessionId
-          ? { OPENCODE_SESSION_ID: config.opencodeSessionId }
-          : {}),
+        ...(config.opencodeSessionId ? { OPENCODE_SESSION_ID: config.opencodeSessionId } : {}),
         ...(config.userEnvVars ?? {}),
       };
 
@@ -208,10 +199,7 @@ export class CloudflareSandboxProvider implements SandboxProvider {
         );
       }
 
-      throw SandboxProviderError.fromFetchError(
-        "Failed to restore sandbox from snapshot",
-        error
-      );
+      throw SandboxProviderError.fromFetchError("Failed to restore sandbox from snapshot", error);
     }
   }
 }
