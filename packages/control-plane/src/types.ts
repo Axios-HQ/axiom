@@ -10,7 +10,6 @@ import type {
   ParticipantRole,
   SessionStatus,
 } from "@open-inspect/shared";
-import type { CloudflareSandboxBinding } from "./sandbox/providers/cloudflare-provider";
 
 export type {
   ArtifactType,
@@ -51,7 +50,7 @@ export interface Env {
   SCHEDULER?: DurableObjectNamespace; // SchedulerDO for automation engine
 
   // Cloudflare Sandbox SDK binding (optional — only when sandbox_provider == "cloudflare")
-  SANDBOX?: CloudflareSandboxBinding;
+  SANDBOX?: DurableObjectNamespace;
 
   // D1 database
   DB: D1Database;

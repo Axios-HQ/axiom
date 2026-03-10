@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --platform=browser --target=es2022 --external:cloudflare:* --external:node:* --external:ai --external:path --external:mime-types",
+    "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --platform=browser --target=es2022 --external:cloudflare:* --external:node:* --external:@cloudflare/containers --alias:path=node:path",
     "backfill:identity-links": "node ./backfill-identity-links.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -14,9 +14,11 @@
     "lint:fix": "eslint src/ --fix"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.1.1",
     "@cloudflare/workers-types": "^4.20241230.0",
     "@open-inspect/shared": "file:../shared",
-    "agents": "^0.7.5"
+    "agents": "^0.7.5",
+    "ai": "^6.0.116"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.10",

@@ -35,9 +35,6 @@ export { ModalSandboxProvider, createModalProvider } from "./providers/modal-pro
 export {
   CloudflareSandboxProvider,
   createCloudflareProvider,
-  type CloudflareSandboxBinding,
-  type CloudflareSandboxInstance,
-  type DirectoryBackup,
 } from "./providers/cloudflare-provider";
 
 // Provider factory

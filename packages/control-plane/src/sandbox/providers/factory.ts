@@ -7,7 +7,7 @@
 import type { SandboxProvider } from "../provider";
 import type { ModalClient } from "../client";
 import { ModalSandboxProvider } from "./modal-provider";
-import { CloudflareSandboxProvider, type CloudflareSandboxBinding } from "./cloudflare-provider";
+import { CloudflareSandboxProvider } from "./cloudflare-provider";
 
 /** Supported provider names. */
 export type SandboxProviderName = "modal" | "cloudflare";
@@ -16,8 +16,8 @@ export type SandboxProviderName = "modal" | "cloudflare";
 export interface SandboxProviderBindings {
   /** Modal client for Modal provider */
   modalClient?: ModalClient;
-  /** Cloudflare Sandbox SDK binding for Cloudflare provider */
-  cloudflareSandboxBinding?: CloudflareSandboxBinding;
+  /** Cloudflare Containers DO namespace for Cloudflare provider */
+  cloudflareSandboxBinding?: DurableObjectNamespace;
 }
 
 /**
