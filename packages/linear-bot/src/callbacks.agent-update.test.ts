@@ -68,7 +68,7 @@ async function makeRequest(
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe("callbacksRouter /agent-update", () => {
+describe("callbacksRouter /update", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -76,7 +76,7 @@ describe("callbacksRouter /agent-update", () => {
   it("returns 400 for invalid payload (missing required fields)", async () => {
     const { app, env } = createApp();
 
-    const response = await makeRequest(app, "/callbacks/agent-update", { bad: "data" }, env);
+    const response = await makeRequest(app, "/callbacks/update", { bad: "data" }, env);
 
     expect(response.status).toBe(400);
     const body = await response.json();
@@ -94,7 +94,7 @@ describe("callbacksRouter /agent-update", () => {
       // context is missing
     };
 
-    const response = await makeRequest(app, "/callbacks/agent-update", payload, env);
+    const response = await makeRequest(app, "/callbacks/update", payload, env);
     expect(response.status).toBe(400);
   });
 
@@ -115,7 +115,7 @@ describe("callbacksRouter /agent-update", () => {
       },
     };
 
-    const response = await makeRequest(app, "/callbacks/agent-update", payload, env);
+    const response = await makeRequest(app, "/callbacks/update", payload, env);
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body).toEqual({ error: "unauthorized" });
@@ -140,7 +140,7 @@ describe("callbacksRouter /agent-update", () => {
     const signature = await computeHmac(payloadData, TEST_SECRET);
     const payload = { ...payloadData, signature };
 
-    const response = await makeRequest(app, "/callbacks/agent-update", payload, env);
+    const response = await makeRequest(app, "/callbacks/update", payload, env);
     expect(response.status).toBe(200);
 
     // Wait for background processing
@@ -175,7 +175,7 @@ describe("callbacksRouter /agent-update", () => {
     const signature = await computeHmac(payloadData, TEST_SECRET);
     const payload = { ...payloadData, signature };
 
-    const response = await makeRequest(app, "/callbacks/agent-update", payload, env);
+    const response = await makeRequest(app, "/callbacks/update", payload, env);
     expect(response.status).toBe(200);
 
     await vi.waitFor(() => {
@@ -207,7 +207,7 @@ describe("callbacksRouter /agent-update", () => {
     const signature = await computeHmac(payloadData, TEST_SECRET);
     const payload = { ...payloadData, signature };
 
-    const response = await makeRequest(app, "/callbacks/agent-update", payload, env);
+    const response = await makeRequest(app, "/callbacks/update", payload, env);
     expect(response.status).toBe(200);
 
     // Give background task a tick to run

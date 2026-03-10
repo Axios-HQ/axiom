@@ -162,7 +162,7 @@ describe("buildCompletionBlocks", () => {
     expect(createPrButton).toBeUndefined();
   });
 
-  it("includes image blocks for screenshot artifacts", () => {
+  it("adds a screenshot context block when screenshot artifacts are present", () => {
     const response: AgentResponse = {
       ...BASE_RESPONSE,
       artifacts: [
@@ -185,16 +185,18 @@ describe("buildCompletionBlocks", () => {
       BASE_CONTEXT,
       "https://app.openinspect.dev"
     );
-    const imageBlocks = blocks.filter((b) => b.type === "image");
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) => element.type === "mrkdwn" && element.text === "2 screenshots shared above"
+        )
+    );
 
-    expect(imageBlocks).toHaveLength(2);
-    expect(imageBlocks[0]?.image_url).toBe("https://example.com/screenshot1.png");
-    expect(imageBlocks[0]?.alt_text).toBe("Homepage after changes");
-    expect(imageBlocks[1]?.image_url).toBe("https://example.com/screenshot2.png");
-    expect(imageBlocks[1]?.alt_text).toBe("Settings page");
+    expect(screenshotContextBlocks).toHaveLength(1);
   });
 
-  it("uses default alt_text when screenshot label is missing", () => {
+  it("uses singular screenshot copy when exactly one screenshot artifact is present", () => {
     const response: AgentResponse = {
       ...BASE_RESPONSE,
       artifacts: [
@@ -212,13 +214,18 @@ describe("buildCompletionBlocks", () => {
       BASE_CONTEXT,
       "https://app.openinspect.dev"
     );
-    const imageBlocks = blocks.filter((b) => b.type === "image");
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) => element.type === "mrkdwn" && element.text === "1 screenshot shared above"
+        )
+    );
 
-    expect(imageBlocks).toHaveLength(1);
-    expect(imageBlocks[0]?.alt_text).toBe("Screenshot");
+    expect(screenshotContextBlocks).toHaveLength(1);
   });
 
-  it("does not include image blocks when there are no screenshot artifacts", () => {
+  it("does not include screenshot context when there are no screenshot artifacts", () => {
     const response: AgentResponse = {
       ...BASE_RESPONSE,
       artifacts: [
@@ -237,9 +244,18 @@ describe("buildCompletionBlocks", () => {
       BASE_CONTEXT,
       "https://app.openinspect.dev"
     );
-    const imageBlocks = blocks.filter((b) => b.type === "image");
+    const screenshotContextBlocks = blocks.filter(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (element) =>
+            element.type === "mrkdwn" &&
+            typeof element.text === "string" &&
+            element.text.includes("screenshot")
+        )
+    );
 
-    expect(imageBlocks).toHaveLength(0);
+    expect(screenshotContextBlocks).toHaveLength(0);
   });
 
   it("falls back to branch artifact URL when createPrUrl is missing", () => {
