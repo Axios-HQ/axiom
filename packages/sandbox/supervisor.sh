@@ -113,12 +113,15 @@ if [ -f /app/sandbox/gh-wrapper.sh ]; then
   export PATH="/home/user/.local/bin:$PATH"
 fi
 
-# ==================== Clone Repository ====================
+# ==================== Clone Repository (with R2 cache) ====================
 
 BRANCH="${GIT_BRANCH:-}"
 CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+CACHE_API="${CONTROL_PLANE_URL}/sessions/${SESSION_ID}/repo-cache?owner=${REPO_OWNER}&name=${REPO_NAME}"
+AUTH_HEADER="Authorization: Bearer ${SANDBOX_AUTH_TOKEN}"
+USED_CACHE=false
 
-echo "[supervisor] Cloning repository..."
+echo "[supervisor] Checking repo cache..."
 cd /home/user
 
 if [ -d "$REPO_DIR/.git" ]; then
@@ -129,17 +132,62 @@ if [ -d "$REPO_DIR/.git" ]; then
     git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH" 2>/dev/null || true
   fi
   git pull --ff-only 2>/dev/null || true
+  USED_CACHE=true
 else
-  if [ -n "$BRANCH" ]; then
-    git clone --depth "$CLONE_DEPTH" --branch "$BRANCH" "$CLONE_URL" "$REPO_DIR" 2>&1 || \
-    git clone --depth "$CLONE_DEPTH" "$CLONE_URL" "$REPO_DIR" 2>&1
+  # Try R2 cache first (much faster than git clone for large repos)
+  CACHE_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" -H "$AUTH_HEADER" --head "$CACHE_API" 2>/dev/null || echo "000")
+
+  if [ "$CACHE_STATUS" = "200" ]; then
+    echo "[supervisor] Found cached repo, downloading..."
+    CACHE_START=$(date +%s)
+    if curl -sf -H "$AUTH_HEADER" "$CACHE_API" | tar xz -C /home/user 2>/dev/null; then
+      CACHE_END=$(date +%s)
+      echo "[supervisor] Cache restored in $((CACHE_END - CACHE_START))s"
+      cd "$REPO_DIR"
+      # Update to latest from remote
+      git fetch --depth "$CLONE_DEPTH" origin 2>&1 || true
+      if [ -n "$BRANCH" ]; then
+        git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH" 2>/dev/null || true
+      fi
+      git pull --ff-only 2>/dev/null || true
+      USED_CACHE=true
+    else
+      echo "[supervisor] Cache download failed, falling back to git clone"
+      rm -rf "$REPO_DIR"
+    fi
   else
-    git clone --depth "$CLONE_DEPTH" "$CLONE_URL" "$REPO_DIR" 2>&1
+    echo "[supervisor] No cache found (status=$CACHE_STATUS), cloning fresh..."
+  fi
+
+  # Fall back to git clone if cache wasn't used
+  if [ "$USED_CACHE" = false ]; then
+    CLONE_START=$(date +%s)
+    if [ -n "$BRANCH" ]; then
+      git clone --depth "$CLONE_DEPTH" --branch "$BRANCH" "$CLONE_URL" "$REPO_DIR" 2>&1 || \
+      git clone --depth "$CLONE_DEPTH" "$CLONE_URL" "$REPO_DIR" 2>&1
+    else
+      git clone --depth "$CLONE_DEPTH" "$CLONE_URL" "$REPO_DIR" 2>&1
+    fi
+    CLONE_END=$(date +%s)
+    echo "[supervisor] Clone completed in $((CLONE_END - CLONE_START))s"
+    cd "$REPO_DIR"
   fi
 fi
 
 cd "$REPO_DIR"
-echo "[supervisor] Repository cloned at $(git rev-parse --short HEAD)"
+echo "[supervisor] Repository ready at $(git rev-parse --short HEAD)"
+
+# Upload to cache in background if we did a fresh clone
+if [ "$USED_CACHE" = false ]; then
+  echo "[supervisor] Uploading repo to cache (background)..."
+  (
+    tar czf - -C /home/user repo | \
+      curl -sf -X PUT -H "$AUTH_HEADER" -H "Content-Type: application/gzip" \
+        --data-binary @- "$CACHE_API" >/dev/null 2>&1 && \
+      echo "[supervisor] Cache upload complete" || \
+      echo "[supervisor] Cache upload failed (non-fatal)"
+  ) &
+fi
 
 # ==================== Repo Hooks ====================
 

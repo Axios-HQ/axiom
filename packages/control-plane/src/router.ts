@@ -42,6 +42,7 @@ import { repoImageRoutes } from "./routes/repo-images";
 import { secretsRoutes } from "./routes/secrets";
 import { automationRoutes } from "./routes/automations";
 import { mediaRoutes } from "./routes/media";
+import { repoCacheRoutes } from "./routes/repo-cache";
 import { identityLinksRoutes } from "./routes/identity-links";
 
 const logger = createLogger("router");
@@ -135,6 +136,7 @@ const SANDBOX_AUTH_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/agent-update$/, // Agent progress updates
   /^\/sessions\/[^/]+\/preview-url$/, // Publish a preview URL artifact
   /^\/sessions\/[^/]+\/code-server-ready$/, // code-server started (authenticated, credential delivery)
+  /^\/sessions\/[^/]+\/repo-cache$/, // Repo tarball cache upload/download
 ];
 
 type CachedScmProvider =
@@ -513,6 +515,9 @@ const routes: Route[] = [
 
   // Media upload/download (R2)
   ...mediaRoutes,
+
+  // Repo cache (R2 tarball caching for fast cold starts)
+  ...repoCacheRoutes,
 
   // Preview URL publishing (sandbox/agent-authenticated)
   {
