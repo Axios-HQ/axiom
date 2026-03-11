@@ -3,6 +3,14 @@
  *
  * Establishes outbound WebSocket to control plane and proxies events
  * between OpenCode (local HTTP) and the control plane.
+ *
+ * Event flow:
+ * 1. Control plane sends { type: "prompt", content, messageId }
+ * 2. Bridge connects to OpenCode SSE stream at GET /event
+ * 3. Bridge sends prompt via POST /session/:id/prompt_async
+ * 4. Bridge translates OpenCode SSE events → SandboxEvent format
+ * 5. Bridge sends translated events directly to control plane WS
+ * 6. Bridge sends { type: "execution_complete" } when done
  */
 
 import WebSocket from "ws";
@@ -25,6 +33,7 @@ const HEARTBEAT_INTERVAL_MS = 15000;
 const PONG_TIMEOUT_MS = 10000;
 const OPENCODE_POLL_INTERVAL_MS = 2000;
 const OPENCODE_READY_TIMEOUT_MS = 120000;
+const SSE_INACTIVITY_TIMEOUT_MS = 600000; // 10 minutes
 
 // ==================== State ====================
 
@@ -34,8 +43,8 @@ let pongTimer = null;
 let reconnectAttempt = 0;
 let shutdownRequested = false;
 let opencodeSessionId = process.env.OPENCODE_SESSION_ID || null;
-let sseAbortController = null;
-let currentMessageId = null;
+let currentPromptAbortController = null;
+let inflightMessageId = null;
 
 // ==================== Helpers ====================
 
@@ -62,7 +71,34 @@ function log(message, data) {
 
 function buildWebSocketUrl() {
   const url = CONTROL_PLANE_URL.replace(/^http/, "ws");
-  return `${url}/sessions/${SESSION_ID}/sandbox/ws?sandboxId=${SANDBOX_ID}&token=${SANDBOX_AUTH_TOKEN}`;
+  return `${url}/sessions/${SESSION_ID}/ws?type=sandbox`;
+}
+
+/**
+ * Generate an ascending ID compatible with OpenCode's message ordering.
+ * Uses timestamp + random suffix to ensure lexicographic ordering.
+ */
+function ascendingId() {
+  const ts = Date.now().toString(36).padStart(9, "0");
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `msg_${ts}_${rand}`;
+}
+
+// ==================== Event Sending ====================
+
+/** Send a SandboxEvent directly to the control plane (no wrapping). */
+function sendEvent(event) {
+  event.sandboxId = SANDBOX_ID;
+  event.timestamp = event.timestamp || Date.now();
+  sendRawMessage(event);
+}
+
+function sendRawMessage(message) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log("Cannot send message, WebSocket not open", { type: message.type });
+    return;
+  }
+  ws.send(JSON.stringify(message));
 }
 
 // ==================== OpenCode HTTP Client ====================
@@ -114,13 +150,11 @@ async function detectOpenCodeSession() {
       const res = await opencodeFetch("/session");
       if (res.ok) {
         const data = await res.json();
-        // OpenCode returns session list or session object
         if (Array.isArray(data) && data.length > 0) {
           opencodeSessionId = data[0].id;
           log("Detected OpenCode session", { opencodeSessionId });
           return opencodeSessionId;
         } else if (data && typeof data === "object") {
-          // May return a map of sessions
           const sessions = Object.values(data);
           if (sessions.length > 0) {
             opencodeSessionId = sessions[0].id;
@@ -135,176 +169,436 @@ async function detectOpenCodeSession() {
     await new Promise((r) => setTimeout(r, OPENCODE_POLL_INTERVAL_MS));
   }
 
-  log("No OpenCode session detected, will create on first prompt");
+  log("No OpenCode session detected, will create one");
   return null;
 }
 
-async function sendPromptToOpenCode(content, messageId, sessionConfig) {
-  if (!opencodeSessionId) {
-    // Try to detect or wait for a session
-    opencodeSessionId = await detectOpenCodeSession();
-    if (!opencodeSessionId) {
-      log("No OpenCode session available, cannot send prompt");
-      return false;
+async function createOpenCodeSession() {
+  log("Creating new OpenCode session...");
+  try {
+    const res = await opencodeFetch("/session", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      opencodeSessionId = data.id;
+      log("Created OpenCode session", { opencodeSessionId });
+      return opencodeSessionId;
     }
+    const text = await res.text();
+    log("Failed to create OpenCode session", { status: res.status, body: text.slice(0, 200) });
+    return null;
+  } catch (err) {
+    log("Error creating OpenCode session", { error: err.message });
+    return null;
+  }
+}
+
+// ==================== OpenCode SSE Event Translation ====================
+
+/**
+ * Transform an OpenCode message part into SandboxEvent(s).
+ * Mirrors the Modal bridge's handle_part / _transform_part_to_event logic.
+ */
+function translatePart(part, delta, messageId, cumulativeText, emittedToolStates, isSubtask) {
+  const events = [];
+  const partType = part.type || "";
+  const partId = part.id || "";
+
+  if (partType === "text") {
+    if (isSubtask) return events; // Don't forward child text tokens
+    if (delta) {
+      cumulativeText[partId] = (cumulativeText[partId] || "") + delta;
+    } else {
+      cumulativeText[partId] = part.text || "";
+    }
+    if (cumulativeText[partId]) {
+      events.push({
+        type: "token",
+        content: cumulativeText[partId],
+        messageId,
+      });
+    }
+  } else if (partType === "tool") {
+    const state = part.state || {};
+    const status = state.status || "";
+    const toolInput = state.input || {};
+    const callId = part.callID || "";
+    const partSessionId = part.sessionID || "";
+
+    // Skip pending tools with no input
+    if ((status === "pending" || status === "") && Object.keys(toolInput).length === 0) {
+      return events;
+    }
+
+    const toolKey = `tool:${partSessionId}:${callId}:${status}`;
+    if (!emittedToolStates.has(toolKey)) {
+      emittedToolStates.add(toolKey);
+      events.push({
+        type: "tool_call",
+        tool: part.tool || "",
+        args: toolInput,
+        callId,
+        status,
+        output: state.output || "",
+        messageId,
+      });
+    }
+  } else if (partType === "step-start") {
+    events.push({
+      type: "step_start",
+      messageId,
+    });
+  } else if (partType === "step-finish") {
+    events.push({
+      type: "step_finish",
+      cost: part.cost,
+      tokens: part.tokens,
+      reason: part.reason,
+      messageId,
+    });
   }
 
-  currentMessageId = messageId;
+  if (isSubtask) {
+    for (const ev of events) {
+      ev.isSubtask = true;
+    }
+  }
+  return events;
+}
+
+// ==================== Prompt Handling ====================
+
+/**
+ * Handle a prompt from the control plane.
+ * Mirrors the Modal bridge's _stream_opencode_response_sse flow:
+ * 1. Connect to SSE stream at GET /event
+ * 2. Send prompt via POST /session/:id/prompt_async
+ * 3. Translate and forward events
+ * 4. Send execution_complete when session goes idle
+ */
+async function handlePrompt(messageId, content) {
+  if (!opencodeSessionId) {
+    opencodeSessionId = await detectOpenCodeSession();
+  }
+  if (!opencodeSessionId) {
+    opencodeSessionId = await createOpenCodeSession();
+  }
+  if (!opencodeSessionId) {
+    sendEvent({
+      type: "error",
+      error: "No OpenCode session available",
+      messageId,
+    });
+    sendEvent({
+      type: "execution_complete",
+      messageId,
+      success: false,
+      error: "No OpenCode session available",
+    });
+    return;
+  }
+
+  inflightMessageId = messageId;
+  const abortController = new AbortController();
+  currentPromptAbortController = abortController;
+  const signal = abortController.signal;
+
+  // Generate ascending message ID for OpenCode correlation
+  const openCodeMessageId = ascendingId();
+
+  // State for event translation
+  const cumulativeText = {};
+  const emittedToolStates = new Set();
+  const allowedAssistantMsgIds = new Set();
+  const trackedChildSessionIds = new Set();
+
+  let hadError = false;
+  let errorMessage = null;
+  let sseReader = null;
 
   try {
-    const body = {
-      role: "user",
+    // Step 1: Connect to OpenCode SSE stream
+    const sseUrl = `${OPENCODE_BASE_URL}/event`;
+    log("Connecting to OpenCode SSE", { url: sseUrl });
+
+    const sseRes = await fetch(sseUrl, {
+      headers: { Accept: "text/event-stream" },
+      signal,
+    });
+
+    if (!sseRes.ok) {
+      throw new Error(`SSE connection failed: ${sseRes.status}`);
+    }
+
+    // Step 2: Send prompt via async endpoint
+    const promptUrl = `${OPENCODE_BASE_URL}/session/${opencodeSessionId}/prompt_async`;
+    const promptBody = {
       parts: [{ type: "text", text: content }],
+      id: openCodeMessageId,
     };
 
     log("Sending prompt to OpenCode", {
       sessionId: opencodeSessionId,
       messageId,
+      openCodeMessageId,
       contentLength: content.length,
     });
 
-    const res = await opencodeFetch(`/session/${opencodeSessionId}/message`, {
+    const promptRes = await fetch(promptUrl, {
       method: "POST",
-      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(promptBody),
+      signal,
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      log("Failed to send prompt to OpenCode", {
-        status: res.status,
-        body: text.slice(0, 200),
-      });
-      return false;
+    if (!promptRes.ok && promptRes.status !== 204) {
+      const errBody = await promptRes.text();
+      throw new Error(`Async prompt failed: ${promptRes.status} - ${errBody}`);
     }
 
-    return true;
-  } catch (err) {
-    log("Error sending prompt to OpenCode", {
-      error: err.message,
-    });
-    return false;
-  }
-}
+    // Step 3: Process SSE events
+    const reader = sseRes.body.getReader();
+    sseReader = reader;
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let lastEventTime = Date.now();
+    let sseComplete = false;
 
-async function cancelCurrentMessage() {
-  if (!opencodeSessionId || !currentMessageId) {
-    return;
-  }
-
-  try {
-    await opencodeFetch(`/session/${opencodeSessionId}/message/${currentMessageId}/cancel`, {
-      method: "POST",
-    });
-    log("Cancelled current message", { messageId: currentMessageId });
-  } catch (err) {
-    log("Error cancelling message", { error: err.message });
-  }
-}
-
-// ==================== SSE Event Streaming ====================
-
-let sseEventCounter = 0;
-
-function startSSEPolling() {
-  if (!opencodeSessionId) {
-    log("No OpenCode session yet, deferring SSE polling");
-    return;
-  }
-
-  stopSSEPolling();
-  sseAbortController = new AbortController();
-
-  log("Starting SSE event polling", { opencodeSessionId });
-
-  pollSSE(sseAbortController.signal).catch((err) => {
-    if (!shutdownRequested) {
-      log("SSE polling error, will restart", { error: err.message });
-      // Restart after a delay
-      setTimeout(() => startSSEPolling(), 5000);
-    }
-  });
-}
-
-function stopSSEPolling() {
-  if (sseAbortController) {
-    sseAbortController.abort();
-    sseAbortController = null;
-  }
-}
-
-async function pollSSE(signal) {
-  const url = `${OPENCODE_BASE_URL}/session/${opencodeSessionId}/events`;
-  log("Connecting to OpenCode SSE", { url });
-
-  while (!signal.aborted) {
-    try {
-      const res = await fetch(url, {
-        headers: { Accept: "text/event-stream" },
-        signal,
-      });
-
-      if (!res.ok) {
-        log("SSE connection failed", { status: res.status });
-        await new Promise((r) => setTimeout(r, 5000));
-        continue;
+    while (!signal.aborted && !sseComplete) {
+      // Check inactivity timeout
+      if (Date.now() - lastEventTime > SSE_INACTIVITY_TIMEOUT_MS) {
+        log("SSE inactivity timeout");
+        break;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+      let eventType = "message";
+      let eventData = "";
 
-        let eventType = "message";
-        let eventData = "";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          eventData += line.slice(6);
+        } else if (line === "" && eventData) {
+          lastEventTime = Date.now();
 
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith("data: ")) {
-            eventData += line.slice(6);
-          } else if (line === "" && eventData) {
-            // End of event - forward to control plane
-            try {
-              const parsed = JSON.parse(eventData);
-              forwardEventToControlPlane(eventType, parsed);
-            } catch {
-              // Non-JSON event data, forward as-is
-              forwardEventToControlPlane(eventType, { raw: eventData });
-            }
+          let parsed;
+          try {
+            parsed = JSON.parse(eventData);
+          } catch {
             eventType = "message";
             eventData = "";
+            continue;
           }
+
+          const sseEventType = parsed.type || eventType;
+          const props = parsed.properties || {};
+
+          // Process the SSE event
+          const result = processSSEEvent(
+            sseEventType,
+            props,
+            messageId,
+            openCodeMessageId,
+            cumulativeText,
+            emittedToolStates,
+            allowedAssistantMsgIds,
+            trackedChildSessionIds
+          );
+
+          if (result.events) {
+            for (const ev of result.events) {
+              sendEvent(ev);
+              if (ev.type === "error") {
+                hadError = true;
+                errorMessage = ev.error;
+              }
+            }
+          }
+
+          if (result.done) {
+            // session.idle or session.status idle — set flag to exit outer loop
+            sseComplete = true;
+            break;
+          }
+
+          eventType = "message";
+          eventData = "";
         }
       }
-    } catch (err) {
-      if (signal.aborted) return;
-      log("SSE stream error", { error: err.message });
-      await new Promise((r) => setTimeout(r, 3000));
+    }
+  } catch (err) {
+    if (signal.aborted) {
+      log("Prompt cancelled", { messageId });
+      hadError = true;
+      errorMessage = "Prompt was cancelled";
+    } else {
+      log("Prompt error", { messageId, error: err.message });
+      hadError = true;
+      errorMessage = err.message;
+
+      sendEvent({
+        type: "error",
+        error: err.message,
+        messageId,
+      });
+    }
+  } finally {
+    currentPromptAbortController = null;
+    inflightMessageId = null;
+    // Release the SSE stream to prevent resource leaks
+    if (sseReader) {
+      sseReader.cancel().catch(() => {});
     }
   }
+
+  // Always send execution_complete
+  sendEvent({
+    type: "execution_complete",
+    messageId,
+    success: !hadError,
+    ...(errorMessage ? { error: errorMessage } : {}),
+  });
+
+  log("Prompt complete", { messageId, success: !hadError });
 }
 
-function forwardEventToControlPlane(eventType, data) {
-  const ackId = `ack_${Date.now()}_${++sseEventCounter}`;
+/**
+ * Process a single OpenCode SSE event and return translated SandboxEvents.
+ * Returns { events: [...], done: boolean }
+ */
+function processSSEEvent(
+  eventType,
+  props,
+  messageId,
+  openCodeMessageId,
+  cumulativeText,
+  emittedToolStates,
+  allowedAssistantMsgIds,
+  trackedChildSessionIds
+) {
+  const events = [];
 
-  sendMessage({
-    type: "sandbox:event",
-    sandboxId: SANDBOX_ID,
-    sessionId: SESSION_ID,
-    event: {
-      type: eventType,
-      ...data,
-    },
-    ackId,
-    timestamp: Date.now(),
-  });
+  if (eventType === "server.connected" || eventType === "server.heartbeat") {
+    return { events, done: false };
+  }
+
+  // Track child sessions
+  if (eventType === "session.created") {
+    const info = props.info || {};
+    const childId = info.id;
+    const childParent = info.parentID;
+    if (childId && childParent === opencodeSessionId) {
+      trackedChildSessionIds.add(childId);
+      log("Child session detected", { childSessionId: childId });
+    }
+    return { events, done: false };
+  }
+
+  const eventSessionId = props.sessionID || (props.part && props.part.sessionID);
+  const isChild = eventSessionId && trackedChildSessionIds.has(eventSessionId);
+
+  // Filter: only process events from our session or tracked children
+  if (eventSessionId && eventSessionId !== opencodeSessionId && !isChild) {
+    return { events, done: false };
+  }
+
+  if (eventType === "message.updated") {
+    const info = props.info || {};
+    const msgSessionId = info.sessionID;
+    const ocMsgId = info.id || "";
+    const parentId = info.parentID || "";
+    const role = info.role || "";
+
+    if (msgSessionId === opencodeSessionId) {
+      if (role === "assistant" && ocMsgId && parentId === openCodeMessageId) {
+        allowedAssistantMsgIds.add(ocMsgId);
+      }
+    } else if (trackedChildSessionIds.has(msgSessionId)) {
+      if (role === "assistant" && ocMsgId) {
+        allowedAssistantMsgIds.add(ocMsgId);
+      }
+    }
+    return { events, done: false };
+  }
+
+  if (eventType === "message.part.updated") {
+    const part = props.part || {};
+    const delta = props.delta;
+    const ocMsgId = part.messageID || "";
+    const partSessionId = part.sessionID || "";
+
+    // Discover child sessions from task tool metadata
+    if (part.tool === "task" && partSessionId === opencodeSessionId) {
+      const metadata = part.metadata;
+      const childSid = metadata && typeof metadata === "object" ? metadata.sessionId : null;
+      if (childSid && !trackedChildSessionIds.has(childSid)) {
+        trackedChildSessionIds.add(childSid);
+        log("Child session detected from task metadata", { childSessionId: childSid });
+      }
+    }
+
+    if (allowedAssistantMsgIds.has(ocMsgId)) {
+      const isSubtask = trackedChildSessionIds.has(partSessionId);
+      const translated = translatePart(
+        part,
+        delta,
+        messageId,
+        cumulativeText,
+        emittedToolStates,
+        isSubtask
+      );
+      events.push(...translated);
+    }
+    return { events, done: false };
+  }
+
+  if (eventType === "session.idle") {
+    const idleSessionId = props.sessionID;
+    if (idleSessionId === opencodeSessionId) {
+      log("Session idle, prompt complete");
+      return { events, done: true };
+    }
+    return { events, done: false };
+  }
+
+  if (eventType === "session.status") {
+    const statusSessionId = props.sessionID;
+    const status = props.status || {};
+    if (statusSessionId === opencodeSessionId && status.type === "idle") {
+      log("Session status idle, prompt complete");
+      return { events, done: true };
+    }
+    return { events, done: false };
+  }
+
+  if (eventType === "session.error") {
+    const errorSessionId = props.sessionID;
+    if (errorSessionId === opencodeSessionId) {
+      const errorObj = props.error || {};
+      const errorMsg =
+        typeof errorObj === "string"
+          ? errorObj
+          : errorObj.message || errorObj.msg || JSON.stringify(errorObj);
+      events.push({
+        type: "error",
+        error: errorMsg || "Unknown error",
+        messageId,
+      });
+    }
+    return { events, done: false };
+  }
+
+  return { events, done: false };
 }
 
 // ==================== Heartbeat ====================
@@ -316,6 +610,12 @@ function startHeartbeat() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     ws.ping();
+
+    // Also send a heartbeat event that the control plane understands
+    sendEvent({
+      type: "heartbeat",
+      status: "ready",
+    });
 
     pongTimer = setTimeout(() => {
       log("Pong timeout, connection appears dead");
@@ -343,26 +643,22 @@ function connect() {
   const url = buildWebSocketUrl();
   log("Connecting to control plane", { url: url.replace(/token=[^&]+/, "token=***") });
 
-  ws = new WebSocket(url);
+  ws = new WebSocket(url, {
+    headers: {
+      Authorization: `Bearer ${SANDBOX_AUTH_TOKEN}`,
+      "X-Sandbox-ID": SANDBOX_ID,
+    },
+  });
 
   ws.on("open", () => {
     log("Connected to control plane");
     reconnectAttempt = 0;
     startHeartbeat();
 
-    sendMessage({
-      type: "sandbox:connected",
-      sandboxId: SANDBOX_ID,
-      sessionId: SESSION_ID,
-      timestamp: Date.now(),
-    });
-
-    // Send ready status
-    sendMessage({
-      type: "sandbox:status",
-      sandboxId: SANDBOX_ID,
+    // Send a ready event as a proper SandboxEvent
+    sendEvent({
+      type: "heartbeat",
       status: "ready",
-      timestamp: Date.now(),
     });
   });
 
@@ -408,67 +704,36 @@ function scheduleReconnect() {
 
 // ==================== Message Handling ====================
 
-function sendMessage(message) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    log("Cannot send message, WebSocket not open", { type: message.type });
-    return;
-  }
-  ws.send(JSON.stringify(message));
-}
-
 async function handleMessage(message) {
   const type = message.type;
 
   switch (type) {
     case "prompt": {
+      const messageId = message.messageId || message.message_id || "unknown";
       log("Received prompt", {
         contentLength: message.content?.length,
-        messageId: message.messageId,
+        messageId,
       });
 
-      // Send running status
-      sendMessage({
-        type: "sandbox:status",
-        sandboxId: SANDBOX_ID,
-        status: "running",
-        timestamp: Date.now(),
-      });
-
-      // Start SSE polling if not already started
-      if (!sseAbortController && opencodeSessionId) {
-        startSSEPolling();
-      }
-
-      const success = await sendPromptToOpenCode(
-        message.content,
-        message.messageId,
-        message.sessionConfig
-      );
-
-      if (!success) {
-        // Report error back
-        sendMessage({
-          type: "sandbox:event",
-          sandboxId: SANDBOX_ID,
-          event: {
-            type: "error",
-            error: "Failed to send prompt to OpenCode",
-            messageId: message.messageId,
-          },
-          timestamp: Date.now(),
+      // Run prompt handling as background task (don't block WS listener)
+      handlePrompt(messageId, message.content || "").catch((err) => {
+        log("Unhandled prompt error", { error: err.message, messageId });
+        sendEvent({
+          type: "execution_complete",
+          messageId,
+          success: false,
+          error: err.message,
         });
-      }
-
-      // If we just got our first session, start SSE
-      if (opencodeSessionId && !sseAbortController) {
-        startSSEPolling();
-      }
+      });
       break;
     }
 
     case "stop":
       log("Received stop signal");
-      await cancelCurrentMessage();
+      if (currentPromptAbortController) {
+        currentPromptAbortController.abort();
+        currentPromptAbortController = null;
+      }
       break;
 
     case "shutdown":
@@ -477,7 +742,11 @@ async function handleMessage(message) {
       break;
 
     case "ack":
-      // Acknowledgement from control plane for an event we sent
+      // Acknowledgement from control plane
+      break;
+
+    case "push":
+      log("Received push command (not yet implemented)");
       break;
 
     default:
@@ -496,6 +765,7 @@ const healthServer = http.createServer((req, res) => {
         status: healthy ? "ok" : "unhealthy",
         bridge: ws ? ws.readyState : "null",
         opencode_session: opencodeSessionId,
+        inflight_message: inflightMessageId,
       })
     );
   } else {
@@ -516,51 +786,54 @@ function shutdown() {
 
   log("Shutting down bridge");
   stopHeartbeat();
-  stopSSEPolling();
+
+  if (currentPromptAbortController) {
+    currentPromptAbortController.abort();
+    currentPromptAbortController = null;
+  }
 
   if (ws) {
-    sendMessage({
-      type: "sandbox:disconnecting",
-      sandboxId: SANDBOX_ID,
-      sessionId: SESSION_ID,
-      timestamp: Date.now(),
-    });
     ws.close(1000, "Bridge shutting down");
     ws = null;
   }
 
   healthServer.close();
 
-  // Give a moment for the close to send, then exit
   setTimeout(() => process.exit(0), 1000);
 }
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
+// Prevent silent crashes from unhandled rejections
+process.on("unhandledRejection", (reason) => {
+  log("Unhandled promise rejection", {
+    error: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (err) => {
+  log("Uncaught exception", { error: err.message, stack: err.stack });
+  // Give time for the log to flush before exiting
+  setTimeout(() => process.exit(1), 500);
+});
+
 // ==================== Main ====================
 
 async function main() {
   log("Bridge starting");
 
-  // Wait for OpenCode to be ready
   const ready = await waitForOpenCode();
   if (!ready) {
     log("OpenCode not ready, starting bridge anyway (will connect when available)");
   }
 
-  // Try to detect existing session
   if (ready) {
     await detectOpenCodeSession();
   }
 
-  // Connect to control plane
   connect();
-
-  // Start SSE polling if we have a session
-  if (opencodeSessionId) {
-    startSSEPolling();
-  }
 }
 
 main().catch((err) => {
