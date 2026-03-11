@@ -38,16 +38,26 @@ export class SandboxContainer extends Container {
     // Configure endpoint: control plane calls this before starting
     if (url.pathname === "/_sandbox/configure" && request.method === "POST") {
       const env = (await request.json()) as Record<string, string>;
-      await this.ctx.storage.put("env", env);
       // Start the container with these env vars and wait for health check port.
       // Timeout after 120s — git clone + npm install can take a while on cold start.
-      await this.startAndWaitForPorts({
-        startOptions: { envVars: env, enableInternet: true },
-        cancellationOptions: {
-          instanceGetTimeoutMS: 120_000,
-          portReadyTimeoutMS: 120_000,
-        },
-      });
+      // Only persist env AFTER successful boot so onStart() won't retry broken configs.
+      try {
+        await this.startAndWaitForPorts({
+          startOptions: { envVars: env, enableInternet: true },
+          cancellationOptions: {
+            instanceGetTimeoutMS: 120_000,
+            portReadyTimeoutMS: 120_000,
+          },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[SandboxContainer] startAndWaitForPorts failed: ${message}`);
+        return new Response(JSON.stringify({ error: message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      await this.ctx.storage.put("env", env);
       return new Response(JSON.stringify({ status: "started" }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -61,8 +71,9 @@ export class SandboxContainer extends Container {
       });
     }
 
-    // Stop endpoint: stop the container
+    // Stop endpoint: stop the container and clear stored env so onStart() won't restart
     if (url.pathname === "/_sandbox/stop" && request.method === "POST") {
+      await this.ctx.storage.delete("env");
       await this.stop();
       return new Response(JSON.stringify({ status: "stopped" }), {
         headers: { "Content-Type": "application/json" },

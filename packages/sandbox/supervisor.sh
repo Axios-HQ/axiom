@@ -117,7 +117,12 @@ fi
 
 BRANCH="${GIT_BRANCH:-}"
 CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
-CACHE_API="${CONTROL_PLANE_URL}/sessions/${SESSION_ID}/repo-cache?owner=${REPO_OWNER}&name=${REPO_NAME}"
+# Include branch in cache key to avoid cross-branch cache pollution
+CACHE_REPO_NAME="${REPO_NAME}"
+if [ -n "$BRANCH" ]; then
+  CACHE_REPO_NAME="${REPO_NAME}__${BRANCH}"
+fi
+CACHE_API="${CONTROL_PLANE_URL}/sessions/${SESSION_ID}/repo-cache?owner=${REPO_OWNER}&name=${CACHE_REPO_NAME}"
 AUTH_HEADER="Authorization: Bearer ${SANDBOX_AUTH_TOKEN}"
 USED_CACHE=false
 
@@ -238,8 +243,10 @@ cd "$REPO_DIR"
 # Set LLM provider config
 export OPENCODE_PROVIDER="${LLM_PROVIDER:-anthropic}"
 export OPENCODE_MODEL="${LLM_MODEL:-claude-sonnet-4-6}"
+# Required so OpenCode auto-declines permission prompts instead of hanging
+export OPENCODE_CLIENT="serve"
 
-opencode &
+opencode serve --port 4096 &
 OPENCODE_PID=$!
 
 echo "[supervisor] OpenCode started (PID $OPENCODE_PID)"

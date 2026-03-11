@@ -69,6 +69,9 @@ WORKDIR /home/user/repo
 
 USER user
 
+# Expose health check port (required by Cloudflare Containers for port detection)
+EXPOSE 8080
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 

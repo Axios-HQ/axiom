@@ -56,9 +56,10 @@ export class CloudflareSandboxProvider implements SandboxProvider {
 
       if (!res.ok) {
         const body = await res.text();
+        const isRetryable = res.status >= 500 || res.status === 429;
         throw new SandboxProviderError(
           `Failed to start container: ${res.status} ${body}`,
-          "permanent"
+          isRetryable ? "transient" : "permanent"
         );
       }
 

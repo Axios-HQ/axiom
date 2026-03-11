@@ -21,6 +21,20 @@ function r2Key(owner: string, name: string): string {
   return `repo-cache/${owner}/${name}.tar.gz`;
 }
 
+function createSizeLimitStream(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
+  let bytesRead = 0;
+  return new TransformStream({
+    transform(chunk, controller) {
+      bytesRead += chunk.byteLength;
+      if (bytesRead > maxBytes) {
+        controller.error(new Error(`Upload exceeds max size of ${maxBytes} bytes`));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
 function parseRepoParams(request: Request): { owner: string; name: string } | null {
   const url = new URL(request.url);
   const owner = url.searchParams.get("owner");
@@ -59,7 +73,13 @@ async function handleUpload(
 
   const key = r2Key(repo.owner, repo.name);
 
-  await env.MEDIA_BUCKET.put(key, request.body, {
+  // Enforce max size even when Content-Length is missing by wrapping with a size limit.
+  // R2 put() accepts ReadableStream, so we pass through a limiting transform.
+  const body = contentLength
+    ? request.body
+    : request.body.pipeThrough(createSizeLimitStream(MAX_TARBALL_SIZE));
+
+  await env.MEDIA_BUCKET.put(key, body, {
     httpMetadata: { contentType: "application/gzip" },
     customMetadata: {
       uploadedAt: new Date().toISOString(),

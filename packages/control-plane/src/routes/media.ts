@@ -7,6 +7,7 @@
 
 import { R2MediaService } from "../media/r2-media-service";
 import { createLogger } from "../logger";
+import { resolvePublicWorkerUrl } from "../public-worker-url";
 import type { Env } from "../types";
 import { type Route, type RequestContext, parsePattern, json, error } from "./shared";
 
@@ -68,7 +69,7 @@ async function handleUpload(
 
   await media.upload(key, body, contentType);
 
-  const workerUrl = env.WORKER_URL ?? "";
+  const workerUrl = resolvePublicWorkerUrl(env);
   const url = `${workerUrl}/api/media/${encodeURIComponent(key)}`;
 
   logger.info("media_uploaded", {

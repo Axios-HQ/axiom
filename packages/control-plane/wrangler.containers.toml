@@ -76,7 +76,7 @@ service = "open-inspect-linear-bot-axiom"
 [vars]
 GITHUB_CLIENT_ID = "Iv23liEAFAb4nzrefZxt"
 WEB_APP_URL = "https://open-inspect-web-axiom.axioshq.workers.dev"
-WORKER_URL = "https://open-inspect-control-plane-axiom.workers.dev"
+WORKER_URL = "https://open-inspect-control-plane-axiom.axioshq.workers.dev"
 MODAL_WORKSPACE = "josh-cisar"
 DEPLOYMENT_NAME = "axiom"
 SANDBOX_PROVIDER = "cloudflare"

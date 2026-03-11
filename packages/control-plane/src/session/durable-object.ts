@@ -78,6 +78,7 @@ import { SessionSandboxEventProcessor } from "./sandbox-events";
 import { createSessionInternalRoutes } from "./http/routes";
 import { createMessagesHandler, type MessagesHandler } from "./http/handlers/messages.handler";
 import { MessageService } from "./services/message.service";
+import { resolvePublicWorkerUrl } from "../public-worker-url";
 
 /**
  * Timeout for WebSocket authentication (in milliseconds).
@@ -438,7 +439,7 @@ export class SessionAgent extends Agent<Env> {
 
     // Build configuration
     const controlPlaneUrl =
-      this.env.WORKER_URL ||
+      resolvePublicWorkerUrl(this.env) ||
       `https://open-inspect-control-plane.${this.env.CF_ACCOUNT_ID || "workers"}.workers.dev`;
 
     // Resolve sessionId for lifecycle manager logging context
