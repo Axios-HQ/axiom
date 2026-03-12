@@ -4,7 +4,6 @@ import { useSession } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { mutate } from "swr";
 import { useState, useEffect, useRef, useCallback } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useSidebarContext } from "@/components/sidebar-layout";
 import { formatModelNameLower } from "@/lib/format";
@@ -368,13 +367,12 @@ function HomeContent({
         <div className="w-full max-w-2xl">
           {/* Welcome text */}
           <div className="text-center mb-8">
-            <Image
+            <img
               src="/axiom-logo.svg"
               alt="Axiom"
               width={400}
               height={134}
               className="mx-auto mb-4 dark:opacity-90"
-              priority
             />
             <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Axiom</h1>
             {isAuthenticated ? (

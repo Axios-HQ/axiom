@@ -8,7 +8,6 @@ import useSWR, { useSWRConfig } from "swr";
 import { formatRelativeTime, isInactiveSession } from "@/lib/time";
 import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-media-query";
-import Image from "next/image";
 import {
   SidebarIcon,
   PlusIcon,
@@ -208,7 +207,7 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
             <SidebarIcon className="w-4 h-4" />
           </Button>
           <Link href="/" className="flex items-center gap-2">
-            <Image src="/axiom-logo.png" alt="Axiom" width={24} height={24} className="rounded" />
+            <img src="/axiom-icon.svg" alt="Axiom" width={24} height={24} className="rounded" />
             <span className="font-semibold text-foreground">Axiom</span>
           </Link>
         </div>
