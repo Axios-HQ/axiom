@@ -117,7 +117,11 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
 /**
  * Routes that do not require authentication.
  */
-const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
+const PUBLIC_ROUTES: RegExp[] = [
+  /^\/health$/,
+  /^\/api\/media\/[^/]+$/,
+  /^\/debug\/sessions\/[^/]+$/,
+];
 
 /**
  * Routes that accept sandbox authentication.
@@ -376,6 +380,11 @@ const routes: Route[] = [
     method: "GET",
     pattern: parsePattern("/sessions"),
     handler: handleListSessions,
+  },
+  {
+    method: "GET",
+    pattern: parsePattern("/debug/sessions/:id"),
+    handler: handleDebugSession,
   },
   {
     method: "POST",
@@ -992,6 +1001,88 @@ async function handleGetSession(
   }
 
   return response;
+}
+
+/**
+ * Debug endpoint for sandbox diagnostics. Requires INTERNAL_CALLBACK_SECRET as bearer token.
+ * Returns full session + sandbox state including heartbeat timestamps, spawn errors, etc.
+ */
+async function handleDebugSession(
+  request: Request,
+  env: Env,
+  match: RegExpMatchArray,
+  ctx: RequestContext
+): Promise<Response> {
+  // Authenticate with internal secret
+  const authHeader = request.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token || token !== env.INTERNAL_CALLBACK_SECRET) {
+    return error("Unauthorized", 401);
+  }
+
+  const sessionId = match.groups?.id;
+  if (!sessionId) return error("Session ID required");
+
+  const doId = env.SESSION.idFromName(sessionId);
+  const stub = env.SESSION.get(doId);
+
+  const response = await stub.fetch(
+    internalRequest(buildSessionInternalUrl(SessionInternalPaths.state), undefined, ctx)
+  );
+
+  if (!response.ok) {
+    return error("Session not found", 404);
+  }
+
+  const state = (await response.json()) as Record<string, unknown>;
+
+  // Enrich with D1 session index data if available
+  let d1Data: Record<string, unknown> | null = null;
+  if (env.DB) {
+    try {
+      const store = new SessionIndexStore(env.DB);
+      const sessionRow = await store.getByIdOrName(sessionId);
+      d1Data = sessionRow as unknown as Record<string, unknown>;
+    } catch {
+      d1Data = { error: "failed to read D1" };
+    }
+  }
+
+  // Optionally proxy to the container for health/state info
+  let containerInfo: Record<string, unknown> | null = null;
+  const url = new URL(request.url);
+  if (url.searchParams.has("container") && env.SANDBOX) {
+    const sandbox = state.sandbox as Record<string, unknown> | null;
+    const sandboxName = sandbox?.modalSandboxId as string | undefined;
+    if (sandboxName) {
+      try {
+        const containerId = env.SANDBOX.idFromName(sandboxName);
+        const containerStub = env.SANDBOX.get(containerId);
+        const endpoint = url.searchParams.get("container") || "health";
+        const containerRes = await containerStub.fetch(
+          new Request(`http://container/${endpoint}`, { method: "GET" })
+        );
+        containerInfo = {
+          status: containerRes.status,
+          body: await containerRes.text().catch(() => "failed to read"),
+        };
+      } catch (err) {
+        containerInfo = { error: err instanceof Error ? err.message : String(err) };
+      }
+    } else {
+      containerInfo = { error: "no sandbox name found" };
+    }
+  }
+
+  return json({
+    ...state,
+    _debug: {
+      timestamp: new Date().toISOString(),
+      requestId: ctx.request_id,
+      d1Session: d1Data,
+      container: containerInfo,
+    },
+  });
 }
 
 async function handleDeleteSession(

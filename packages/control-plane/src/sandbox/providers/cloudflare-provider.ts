@@ -23,7 +23,10 @@ export class CloudflareSandboxProvider implements SandboxProvider {
     supportsWarm: false,
   };
 
-  constructor(private readonly namespace: DurableObjectNamespace) {}
+  constructor(
+    private readonly namespace: DurableObjectNamespace,
+    private readonly llmApiKeys: Record<string, string> = {}
+  ) {}
 
   async createSandbox(config: CreateSandboxConfig): Promise<CreateSandboxResult> {
     try {
@@ -40,6 +43,9 @@ export class CloudflareSandboxProvider implements SandboxProvider {
         ...(config.repoImageId ? { REPO_IMAGE_ID: config.repoImageId } : {}),
         ...(config.repoImageSha ? { REPO_IMAGE_SHA: config.repoImageSha } : {}),
         ...(config.opencodeSessionId ? { OPENCODE_SESSION_ID: config.opencodeSessionId } : {}),
+        // Worker-level LLM keys (equivalent to Modal's llm-api-keys secret).
+        // Placed before userEnvVars so user/repo secrets can override.
+        ...this.llmApiKeys,
         ...(config.userEnvVars ?? {}),
       };
 
@@ -81,8 +87,21 @@ export class CloudflareSandboxProvider implements SandboxProvider {
 /**
  * Create a Cloudflare sandbox provider.
  */
+/**
+ * Create a Cloudflare sandbox provider.
+ * Extracts LLM API keys from worker env vars to inject into containers
+ * (equivalent to Modal's llm-api-keys secret).
+ */
 export function createCloudflareProvider(
-  namespace: DurableObjectNamespace
+  namespace: DurableObjectNamespace,
+  workerEnv?: { ANTHROPIC_API_KEY?: string; OPENAI_API_KEY?: string }
 ): CloudflareSandboxProvider {
-  return new CloudflareSandboxProvider(namespace);
+  const llmApiKeys: Record<string, string> = {};
+  if (workerEnv?.ANTHROPIC_API_KEY) {
+    llmApiKeys.ANTHROPIC_API_KEY = workerEnv.ANTHROPIC_API_KEY;
+  }
+  if (workerEnv?.OPENAI_API_KEY) {
+    llmApiKeys.OPENAI_API_KEY = workerEnv.OPENAI_API_KEY;
+  }
+  return new CloudflareSandboxProvider(namespace, llmApiKeys);
 }

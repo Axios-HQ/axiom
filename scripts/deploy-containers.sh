@@ -70,7 +70,9 @@ if [ "$SKIP_SECRETS" = false ]; then
   "MODAL_API_SECRET": "$(get_tfvar modal_api_secret)",
   "INTERNAL_CALLBACK_SECRET": "$(get_tfvar internal_callback_secret)",
   "GITHUB_APP_ID": "$(get_tfvar github_app_id)",
-  "GITHUB_APP_INSTALLATION_ID": "$(get_tfvar github_app_installation_id)"
+  "GITHUB_APP_INSTALLATION_ID": "$(get_tfvar github_app_installation_id)",
+  "ANTHROPIC_API_KEY": "$(get_tfvar anthropic_api_key)",
+  "OPENAI_API_KEY": "$(get_tfvar openai_api_key)"
 }
 JSONEOF
 )
@@ -79,7 +81,7 @@ JSONEOF
   GITHUB_APP_KEY=$(get_tfvar github_app_private_key)
 
   if [ "$DRY_RUN" = true ]; then
-    echo "[dry-run] Would set 9 secrets + GITHUB_APP_PRIVATE_KEY via wrangler secret bulk"
+    echo "[dry-run] Would set 11 secrets + GITHUB_APP_PRIVATE_KEY via wrangler secret bulk"
   else
     cd "$CP_DIR"
     echo "$SECRETS_JSON" | npx wrangler secret bulk --config wrangler.containers.toml

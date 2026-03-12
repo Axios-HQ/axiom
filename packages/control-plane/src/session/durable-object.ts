@@ -379,7 +379,16 @@ export class SessionAgent extends Agent<Env> {
 
     const cloudflareSandboxBinding = providerName === "cloudflare" ? this.env.SANDBOX : undefined;
 
-    const provider = createSandboxProvider(providerName, { modalClient, cloudflareSandboxBinding });
+    const llmApiKeys = {
+      ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: this.env.OPENAI_API_KEY,
+    };
+
+    const provider = createSandboxProvider(providerName, {
+      modalClient,
+      cloudflareSandboxBinding,
+      llmApiKeys,
+    });
 
     // Storage adapter
     const storage: SandboxStorage = {
@@ -1786,8 +1795,16 @@ export class SessionAgent extends Agent<Env> {
             status: sandbox.status,
             gitSyncStatus: sandbox.git_sync_status,
             lastHeartbeat: sandbox.last_heartbeat,
+            lastActivity: sandbox.last_activity,
+            lastSpawnError: sandbox.last_spawn_error,
+            lastSpawnErrorAt: sandbox.last_spawn_error_at,
+            spawnFailureCount: sandbox.spawn_failure_count,
+            createdAt: sandbox.created_at,
+            hasSandboxWs: this.wsManager.getSandboxSocket() !== null,
           }
         : null,
+      processingMessage: this.repository.getProcessingMessage()?.id ?? null,
+      pendingMessages: this.repository.getPendingOrProcessingCount(),
     });
   }
 

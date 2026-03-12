@@ -81,6 +81,10 @@ export interface Env {
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
   MODAL_WORKSPACE?: string; // Modal workspace name (used in Modal endpoint URLs)
 
+  // LLM API keys (injected into sandbox env vars, mirrors Modal's llm-api-keys secret)
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+
   // Sandbox provider selection
   SANDBOX_PROVIDER?: string; // "modal" | "cloudflare" (default: "modal")
 

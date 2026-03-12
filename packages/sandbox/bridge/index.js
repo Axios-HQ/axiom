@@ -101,6 +101,72 @@ function sendRawMessage(message) {
   ws.send(JSON.stringify(message));
 }
 
+// ==================== Prompt Body Builder ====================
+
+// Models that support adaptive thinking (Anthropic)
+const ANTHROPIC_ADAPTIVE_THINKING_MODELS = new Set(["claude-sonnet-4-6", "claude-opus-4-6"]);
+const ANTHROPIC_THINKING_BUDGETS = { low: 1024, medium: 4096, high: 10000, max: 32000 };
+const ANTHROPIC_ADAPTIVE_EFFORTS = new Set(["low", "medium", "high", "max"]);
+
+/**
+ * Build the request body for OpenCode's prompt_async endpoint.
+ * Mirrors the Modal Python bridge's _build_prompt_request_body.
+ */
+function buildPromptBody(content, messageID, model, reasoningEffort, attachments) {
+  const parts = [{ type: "text", text: content }];
+
+  // Append file attachments
+  if (Array.isArray(attachments)) {
+    for (const att of attachments) {
+      if (!att || typeof att !== "object") continue;
+      const mime = att.mimeType || "application/octet-stream";
+      const name = att.name || "attachment";
+      const url = att.url || "";
+      if (typeof url !== "string" || (!url.startsWith("https://") && !url.startsWith("http://")))
+        continue;
+      parts.push({ type: "file", mime, url, filename: name });
+    }
+  }
+
+  const body = { parts, messageID };
+
+  // Build model spec if model is provided
+  if (model) {
+    let providerID, modelID;
+    if (model.includes("/")) {
+      [providerID, modelID] = model.split("/", 2);
+    } else {
+      providerID = "anthropic";
+      modelID = model;
+    }
+
+    const modelSpec = { providerID, modelID };
+
+    if (reasoningEffort) {
+      if (providerID === "anthropic") {
+        if (ANTHROPIC_ADAPTIVE_THINKING_MODELS.has(modelID)) {
+          const options = { thinking: { type: "adaptive" } };
+          if (ANTHROPIC_ADAPTIVE_EFFORTS.has(reasoningEffort)) {
+            options.outputConfig = { effort: reasoningEffort };
+          }
+          modelSpec.options = options;
+        } else {
+          const budget = ANTHROPIC_THINKING_BUDGETS[reasoningEffort];
+          if (budget !== undefined) {
+            modelSpec.options = { thinking: { type: "enabled", budgetTokens: budget } };
+          }
+        }
+      } else if (providerID === "openai") {
+        modelSpec.options = { reasoningEffort, reasoningSummary: "auto" };
+      }
+    }
+
+    body.model = modelSpec;
+  }
+
+  return body;
+}
+
 // ==================== OpenCode HTTP Client ====================
 
 async function opencodeFetch(path, options = {}) {
@@ -278,7 +344,7 @@ function translatePart(part, delta, messageId, cumulativeText, emittedToolStates
  * 3. Translate and forward events
  * 4. Send execution_complete when session goes idle
  */
-async function handlePrompt(messageId, content) {
+async function handlePrompt(messageId, content, model, reasoningEffort, attachments) {
   if (!opencodeSessionId) {
     opencodeSessionId = await detectOpenCodeSession();
   }
@@ -313,6 +379,7 @@ async function handlePrompt(messageId, content) {
   const emittedToolStates = new Set();
   const allowedAssistantMsgIds = new Set();
   const trackedChildSessionIds = new Set();
+  let compactionOccurred = false;
 
   let hadError = false;
   let errorMessage = null;
@@ -334,16 +401,21 @@ async function handlePrompt(messageId, content) {
 
     // Step 2: Send prompt via async endpoint
     const promptUrl = `${OPENCODE_BASE_URL}/session/${opencodeSessionId}/prompt_async`;
-    const promptBody = {
-      parts: [{ type: "text", text: content }],
-      id: openCodeMessageId,
-    };
+    const promptBody = buildPromptBody(
+      content,
+      openCodeMessageId,
+      model,
+      reasoningEffort,
+      attachments
+    );
 
     log("Sending prompt to OpenCode", {
       sessionId: opencodeSessionId,
       messageId,
       openCodeMessageId,
       contentLength: content.length,
+      model: model || "default",
+      reasoningEffort: reasoningEffort || "default",
     });
 
     const promptRes = await fetch(promptUrl, {
@@ -412,8 +484,10 @@ async function handlePrompt(messageId, content) {
             cumulativeText,
             emittedToolStates,
             allowedAssistantMsgIds,
-            trackedChildSessionIds
+            trackedChildSessionIds,
+            compactionOccurred
           );
+          if (result.compactionOccurred) compactionOccurred = true;
 
           if (result.events) {
             for (const ev of result.events) {
@@ -484,12 +558,19 @@ function processSSEEvent(
   cumulativeText,
   emittedToolStates,
   allowedAssistantMsgIds,
-  trackedChildSessionIds
+  trackedChildSessionIds,
+  compactionOccurred
 ) {
   const events = [];
 
   if (eventType === "server.connected" || eventType === "server.heartbeat") {
     return { events, done: false };
+  }
+
+  // Handle session compaction — after compaction, parentID changes
+  if (eventType === "session.compacted") {
+    log("Session compacted, relaxing parentID matching");
+    return { events, done: false, compactionOccurred: true };
   }
 
   // Track child sessions
@@ -518,9 +599,16 @@ function processSSEEvent(
     const ocMsgId = info.id || "";
     const parentId = info.parentID || "";
     const role = info.role || "";
+    const isSummary = info.metadata?.summary === true;
 
     if (msgSessionId === opencodeSessionId) {
-      if (role === "assistant" && ocMsgId && parentId === openCodeMessageId) {
+      const parentMatches = parentId === openCodeMessageId;
+      // Accept if: parentID matches, OR compaction occurred (and not a summary message)
+      if (
+        role === "assistant" &&
+        ocMsgId &&
+        (parentMatches || (compactionOccurred && !isSummary))
+      ) {
         allowedAssistantMsgIds.add(ocMsgId);
       }
     } else if (trackedChildSessionIds.has(msgSessionId)) {
@@ -571,15 +659,10 @@ function processSSEEvent(
     return { events, done: false };
   }
 
-  if (eventType === "session.status") {
-    const statusSessionId = props.sessionID;
-    const status = props.status || {};
-    if (statusSessionId === opencodeSessionId && status.type === "idle") {
-      log("Session status idle, prompt complete");
-      return { events, done: true };
-    }
-    return { events, done: false };
-  }
+  // Note: session.status with type=idle is intentionally NOT handled here.
+  // OpenCode sends it as current state on SSE connect, which would cause
+  // premature exit on subsequent prompts. Only session.idle (transition event)
+  // signals prompt completion.
 
   if (eventType === "session.error") {
     const errorSessionId = props.sessionID;
@@ -716,7 +799,13 @@ async function handleMessage(message) {
       });
 
       // Run prompt handling as background task (don't block WS listener)
-      handlePrompt(messageId, message.content || "").catch((err) => {
+      handlePrompt(
+        messageId,
+        message.content || "",
+        message.model,
+        message.reasoningEffort,
+        message.attachments
+      ).catch((err) => {
         log("Unhandled prompt error", { error: err.message, messageId });
         sendEvent({
           type: "execution_complete",

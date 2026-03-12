@@ -1157,7 +1157,7 @@ const EventItem = memo(function EventItem({
       return (
         <div className="group bg-card rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-muted-foreground">Assistant</span>
+            <span className="text-xs text-muted-foreground">Axiom</span>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"

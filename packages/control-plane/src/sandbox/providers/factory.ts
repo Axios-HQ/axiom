@@ -18,6 +18,8 @@ export interface SandboxProviderBindings {
   modalClient?: ModalClient;
   /** Cloudflare Containers DO namespace for Cloudflare provider */
   cloudflareSandboxBinding?: DurableObjectNamespace;
+  /** LLM API keys from worker env (injected into containers, equivalent to Modal's llm-api-keys) */
+  llmApiKeys?: { ANTHROPIC_API_KEY?: string; OPENAI_API_KEY?: string };
 }
 
 /**
@@ -40,7 +42,14 @@ export function createSandboxProvider(
             "Ensure the SANDBOX binding is configured in wrangler."
         );
       }
-      return new CloudflareSandboxProvider(bindings.cloudflareSandboxBinding);
+      const llmKeys: Record<string, string> = {};
+      if (bindings.llmApiKeys?.ANTHROPIC_API_KEY) {
+        llmKeys.ANTHROPIC_API_KEY = bindings.llmApiKeys.ANTHROPIC_API_KEY;
+      }
+      if (bindings.llmApiKeys?.OPENAI_API_KEY) {
+        llmKeys.OPENAI_API_KEY = bindings.llmApiKeys.OPENAI_API_KEY;
+      }
+      return new CloudflareSandboxProvider(bindings.cloudflareSandboxBinding, llmKeys);
     }
 
     case "modal": {
