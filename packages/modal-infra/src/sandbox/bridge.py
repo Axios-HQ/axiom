@@ -1453,10 +1453,153 @@ class AgentBridge:
             self._current_prompt_task.cancel()
         self.shutdown_event.set()
 
+    GIT_FETCH_TIMEOUT_SECONDS = 60.0
+    GIT_REBASE_TIMEOUT_SECONDS = 120.0
+
+    async def _run_git(
+        self,
+        args: list[str],
+        cwd: Path,
+        timeout_seconds: float,
+        env: dict[str, str] | None = None,
+    ) -> tuple[int, str, str]:
+        """Run a git command and return (returncode, stdout, stderr)."""
+        import os as _os
+
+        proc_env = dict(_os.environ)
+        if env:
+            proc_env.update(env)
+
+        result = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=proc_env,
+        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                result.communicate(),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                result.kill()
+            await result.wait()
+            raise
+        return (
+            result.returncode if result.returncode is not None else 0,
+            stdout_bytes.decode(errors="replace").strip(),
+            stderr_bytes.decode(errors="replace").strip(),
+        )
+
+    async def _check_branch_freshness(
+        self,
+        repo_dir: Path,
+        base_branch: str,
+        push_remote_url: str,
+    ) -> tuple[bool, int]:
+        """Fetch base branch and return (is_behind, behind_count).
+
+        Returns (False, 0) on fetch failure so push can proceed optimistically.
+        """
+        # Fetch the base branch from origin using the push remote (authenticated)
+        try:
+            rc, _out, err = await self._run_git(
+                [
+                    "fetch",
+                    push_remote_url,
+                    f"refs/heads/{base_branch}:refs/axiom/base",
+                    "--force",
+                ],
+                cwd=repo_dir,
+                timeout_seconds=self.GIT_FETCH_TIMEOUT_SECONDS,
+            )
+            if rc != 0:
+                self.log.warn(
+                    "git.freshness_fetch_failed",
+                    base_branch=base_branch,
+                    stderr=err[:500],
+                )
+                return False, 0
+        except TimeoutError:
+            self.log.warn(
+                "git.freshness_fetch_timeout",
+                base_branch=base_branch,
+                timeout_s=self.GIT_FETCH_TIMEOUT_SECONDS,
+            )
+            return False, 0
+        except Exception as e:
+            self.log.warn("git.freshness_fetch_error", base_branch=base_branch, exc=e)
+            return False, 0
+
+        # Count commits in base that are not in HEAD
+        try:
+            rc, out, _err = await self._run_git(
+                ["rev-list", "--count", "HEAD..refs/axiom/base"],
+                cwd=repo_dir,
+                timeout_seconds=10.0,
+            )
+            if rc != 0:
+                return False, 0
+            behind_count = int(out) if out.isdigit() else 0
+            return behind_count > 0, behind_count
+        except Exception as e:
+            self.log.warn("git.freshness_count_error", base_branch=base_branch, exc=e)
+            return False, 0
+
+    async def _attempt_rebase_onto_base(
+        self,
+        repo_dir: Path,
+    ) -> tuple[bool, str | None]:
+        """Attempt a rebase of HEAD onto refs/axiom/base.
+
+        Returns (success, error_message).
+        On conflict, aborts the rebase before returning.
+        """
+        try:
+            rc, _out, err = await self._run_git(
+                ["rebase", "refs/axiom/base"],
+                cwd=repo_dir,
+                timeout_seconds=self.GIT_REBASE_TIMEOUT_SECONDS,
+            )
+            if rc == 0:
+                return True, None
+            # Rebase failed — abort to restore the working tree
+            abort_rc, _aout, _aerr = await self._run_git(
+                ["rebase", "--abort"],
+                cwd=repo_dir,
+                timeout_seconds=30.0,
+            )
+            if abort_rc != 0:
+                self.log.warn("git.rebase_abort_failed", abort_rc=abort_rc)
+            return False, err[:500] if err else "Rebase failed"
+        except TimeoutError:
+            # Best-effort abort
+            with contextlib.suppress(Exception):
+                await self._run_git(
+                    ["rebase", "--abort"],
+                    cwd=repo_dir,
+                    timeout_seconds=15.0,
+                )
+            return (
+                False,
+                f"Rebase timed out after {int(self.GIT_REBASE_TIMEOUT_SECONDS)}s",
+            )
+        except Exception as e:
+            return False, str(e)
+
     async def _handle_push(self, cmd: dict[str, Any]) -> None:
-        """Handle push command using provider-generated push spec."""
+        """Handle push command using provider-generated push spec.
+
+        Before pushing, fetches the base branch and attempts a safe rebase if
+        the local branch is behind.  If the rebase conflicts, the push is
+        aborted with an actionable error message.
+        """
         push_spec = cmd.get("pushSpec") if isinstance(cmd.get("pushSpec"), dict) else None
         branch_name = str(push_spec.get("targetBranch", "")).strip() if push_spec else ""
+        base_branch = str(cmd.get("baseBranch", "")).strip() if cmd.get("baseBranch") else ""
 
         self.log.info(
             "git.push_start",
@@ -1519,6 +1662,52 @@ class AgentBridge:
                     }
                 )
                 return
+
+            # --- Branch freshness guard ---
+            # If a base branch is specified, fetch and check whether our local
+            # branch is behind.  If behind, attempt a safe rebase.  A conflict
+            # during rebase is a hard stop — we refuse to push partial work.
+            if base_branch:
+                is_behind, behind_count = await self._check_branch_freshness(
+                    repo_dir, base_branch, push_url
+                )
+                if is_behind:
+                    self.log.info(
+                        "git.push_freshness_behind",
+                        branch_name=branch_name,
+                        base_branch=base_branch,
+                        behind_count=behind_count,
+                    )
+                    rebase_ok, rebase_err = await self._attempt_rebase_onto_base(repo_dir)
+                    if not rebase_ok:
+                        self.log.warn(
+                            "git.push_freshness_conflict",
+                            branch_name=branch_name,
+                            base_branch=base_branch,
+                            error=rebase_err,
+                        )
+                        await self._send_event(
+                            {
+                                "type": "push_error",
+                                "error": (
+                                    f"Push blocked: branch is {behind_count} commit(s) behind "
+                                    f"'{base_branch}' and automatic rebase failed due to "
+                                    f"conflicts. Please resolve conflicts locally and push again. "
+                                    f"Details: {rebase_err}"
+                                ),
+                                "branchName": branch_name,
+                                "baseBranch": base_branch,
+                                "behindCount": behind_count,
+                                "timestamp": time.time(),
+                            }
+                        )
+                        return
+                    self.log.info(
+                        "git.push_freshness_rebased",
+                        branch_name=branch_name,
+                        base_branch=base_branch,
+                        behind_count=behind_count,
+                    )
 
             self.log.info(
                 "git.push_command",

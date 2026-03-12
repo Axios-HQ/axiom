@@ -19,6 +19,21 @@ export interface GitHubBotSettings {
   allowedTriggerUsers?: string[];
   codeReviewInstructions?: string;
   commentActionInstructions?: string;
+  /**
+   * Regex that every Axiom-created PR title must match.
+   * Example: "^(feat|fix|chore|docs|refactor|test)(\\(.+\\))?: .+"
+   */
+  prTitleRegex?: string;
+  /**
+   * Human-readable example of a valid PR title.
+   * Included in the 400 error when the regex check fails.
+   */
+  prTitleExample?: string;
+  /**
+   * When true, PR creation requires at least one screenshot artifact if
+   * UI files were changed.
+   */
+  requireScreenshotForUiChanges?: boolean;
 }
 
 /** Overridable behavior settings for the Linear bot. Used at both global (defaults) and per-repo (overrides) levels. */
