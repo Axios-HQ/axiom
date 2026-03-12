@@ -1798,7 +1798,6 @@ export class SessionAgent extends Agent<Env> {
             lastActivity: sandbox.last_activity,
             lastSpawnError: sandbox.last_spawn_error,
             lastSpawnErrorAt: sandbox.last_spawn_error_at,
-            spawnFailureCount: sandbox.spawn_failure_count,
             createdAt: sandbox.created_at,
             hasSandboxWs: this.wsManager.getSandboxSocket() !== null,
           }

@@ -86,7 +86,7 @@ export default tool({
       ),
     draft: z.boolean().optional().describe("Whether to create the pull request as a draft."),
   },
-  async execute(args, context) {
+  async execute(args, _context) {
     console.log(`[create-pull-request] execute() called with args:`, JSON.stringify(args));
     const title = args.title || "Changes from OpenCode session";
     const body = args.body || "Automated PR created via create-pull-request tool";
