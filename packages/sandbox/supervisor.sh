@@ -2,12 +2,15 @@
 # Supervisor for Cloudflare sandbox container.
 #
 # Runs as PID 1 inside the container. Responsibilities:
-# 1. Configure git credentials and identity
-# 2. Clone the repository
-# 3. Run repo hooks (.openinspect/setup.sh, .openinspect/start.sh)
-# 4. Start OpenCode agent
-# 5. Start WebSocket bridge to control plane
+# 1. Start WebSocket bridge FIRST (port 8080 ready for CF health check)
+# 2. Configure git credentials and identity
+# 3. Restore repository from R2 cache or clone fresh
+# 4. Run repo hooks (.openinspect/setup.sh, .openinspect/start.sh)
+# 5. Start OpenCode agent
 # 6. Monitor processes and handle shutdown
+#
+# Boot order is bridge-first so CF's startAndWaitForPorts unblocks in ~3s
+# instead of waiting for the entire git clone + opencode startup sequence.
 
 set -euo pipefail
 
@@ -83,10 +86,36 @@ trap cleanup SIGTERM SIGINT SIGHUP
 : "${REPO_OWNER:?REPO_OWNER is required}"
 : "${REPO_NAME:?REPO_NAME is required}"
 
+BOOT_START=$(date +%s%3N)
+
 echo "[supervisor] Starting sandbox $SANDBOX_ID for session $SESSION_ID"
 echo "[supervisor] Repository: $REPO_OWNER/$REPO_NAME"
 
-# ==================== Git Setup ====================
+# ==================== 1. Start Bridge FIRST (port 8080 for CF health check) ====================
+
+echo "[supervisor] Starting WebSocket bridge (bridge-first boot)..."
+cd "$BRIDGE_DIR"
+
+# Export SESSION_CONFIG early — bridge needs it for session context
+export SESSION_CONFIG=$(cat <<EOF
+{"sessionId":"${SESSION_ID}","repoOwner":"${REPO_OWNER}","repoName":"${REPO_NAME}","branch":"${GIT_BRANCH:-}"}
+EOF
+)
+
+node index.js &
+BRIDGE_PID=$!
+
+sleep 1
+
+if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then
+  echo "[supervisor] ERROR: Bridge failed to start"
+  exit 1
+fi
+
+BRIDGE_READY_MS=$(($(date +%s%3N) - BOOT_START))
+echo "[supervisor] Bridge started (PID $BRIDGE_PID), port 8080 ready in ${BRIDGE_READY_MS}ms"
+
+# ==================== 2. Git Setup ====================
 
 echo "[supervisor] Configuring git credentials..."
 
@@ -114,7 +143,7 @@ if [ -f /app/sandbox/gh-wrapper.sh ]; then
   export PATH="/home/user/.local/bin:$PATH"
 fi
 
-# ==================== Clone Repository (with R2 cache) ====================
+# ==================== 3. Clone Repository (with R2 cache) ====================
 
 BRANCH="${GIT_BRANCH:-}"
 CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
@@ -181,7 +210,9 @@ else
 fi
 
 cd "$REPO_DIR"
-echo "[supervisor] Repository ready at $(git rev-parse --short HEAD)"
+
+REPO_READY_MS=$(($(date +%s%3N) - BOOT_START))
+echo "[supervisor] Repository ready at $(git rev-parse --short HEAD) in ${REPO_READY_MS}ms"
 
 # Upload to cache in background if we did a fresh clone
 if [ "$USED_CACHE" = false ]; then
@@ -195,7 +226,7 @@ if [ "$USED_CACHE" = false ]; then
   ) &
 fi
 
-# ==================== Repo Hooks ====================
+# ==================== 4. Repo Hooks ====================
 
 SETUP_SCRIPT=".openinspect/setup.sh"
 START_SCRIPT=".openinspect/start.sh"
@@ -216,7 +247,7 @@ if [ -f "$START_SCRIPT" ]; then
   }
 fi
 
-# ==================== Copy OpenCode Tools ====================
+# ==================== 5. Copy OpenCode Tools ====================
 
 # Copy tools to OpenCode plugins directory if they exist
 TOOLS_SRC="/opt/tools"
@@ -228,15 +259,7 @@ if [ -d "$TOOLS_SRC" ]; then
   echo "[supervisor] Copied OpenCode tools to $OPENCODE_PLUGINS_DIR"
 fi
 
-# ==================== Write Session Config ====================
-
-# OpenCode needs session config as env or file
-export SESSION_CONFIG=$(cat <<EOF
-{"sessionId":"${SESSION_ID}","repoOwner":"${REPO_OWNER}","repoName":"${REPO_NAME}","branch":"${GIT_BRANCH:-}"}
-EOF
-)
-
-# ==================== Start OpenCode ====================
+# ==================== 6. Start OpenCode ====================
 
 echo "[supervisor] Starting OpenCode agent..."
 cd "$REPO_DIR"
@@ -252,29 +275,16 @@ OPENCODE_PID=$!
 
 echo "[supervisor] OpenCode started (PID $OPENCODE_PID)"
 
-# Give OpenCode time to start its HTTP server
-sleep 3
+# No blocking sleep — bridge already polls for OpenCode readiness via
+# detectOpenCodeSession() with retries on first prompt.
 
 if ! kill -0 "$OPENCODE_PID" 2>/dev/null; then
   echo "[supervisor] ERROR: OpenCode failed to start"
   exit 1
 fi
 
-# ==================== Start Bridge ====================
-
-echo "[supervisor] Starting WebSocket bridge..."
-cd "$BRIDGE_DIR"
-node index.js &
-BRIDGE_PID=$!
-
-sleep 2
-
-if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then
-  echo "[supervisor] ERROR: Bridge failed to start"
-  exit 1
-fi
-
-echo "[supervisor] Bridge started (PID $BRIDGE_PID)"
+OPENCODE_READY_MS=$(($(date +%s%3N) - BOOT_START))
+echo "[supervisor] OpenCode launched in ${OPENCODE_READY_MS}ms (total boot time)"
 
 # ==================== Health Monitor ====================
 

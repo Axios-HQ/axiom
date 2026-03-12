@@ -31,7 +31,7 @@ const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const HEARTBEAT_INTERVAL_MS = 15000;
 const PONG_TIMEOUT_MS = 10000;
-const OPENCODE_POLL_INTERVAL_MS = 2000;
+const OPENCODE_POLL_INTERVAL_MS = 500;
 const OPENCODE_READY_TIMEOUT_MS = 120000;
 const SSE_INACTIVITY_TIMEOUT_MS = 600000; // 10 minutes
 
@@ -697,7 +697,7 @@ function startHeartbeat() {
     // Also send a heartbeat event that the control plane understands
     sendEvent({
       type: "heartbeat",
-      status: "ready",
+      status: opencodeSessionId ? "ready" : "booting",
     });
 
     pongTimer = setTimeout(() => {
@@ -715,6 +715,28 @@ function stopHeartbeat() {
   if (pongTimer) {
     clearTimeout(pongTimer);
     pongTimer = null;
+  }
+}
+
+// ==================== Background OpenCode Readiness ====================
+
+/**
+ * Background check for OpenCode readiness after bridge-first boot.
+ * Polls until OpenCode is up, detects session, then sends "ready" heartbeat
+ * so the control plane (and UI) knows the sandbox is fully operational.
+ */
+async function checkOpenCodeReady() {
+  log("Starting background OpenCode readiness check");
+  const ready = await waitForOpenCode();
+  if (ready) {
+    await detectOpenCodeSession();
+    sendEvent({
+      type: "heartbeat",
+      status: "ready",
+    });
+    log("OpenCode ready, sent ready heartbeat");
+  } else {
+    log("OpenCode did not become ready within timeout");
   }
 }
 
@@ -738,11 +760,16 @@ function connect() {
     reconnectAttempt = 0;
     startHeartbeat();
 
-    // Send a ready event as a proper SandboxEvent
+    // Send booting status — OpenCode may not be ready yet (bridge-first boot order)
     sendEvent({
       type: "heartbeat",
-      status: "ready",
+      status: opencodeSessionId ? "ready" : "booting",
     });
+
+    // If OpenCode isn't detected yet, check in the background and upgrade to ready
+    if (!opencodeSessionId) {
+      checkOpenCodeReady();
+    }
   });
 
   ws.on("message", (data) => {
@@ -915,17 +942,13 @@ process.on("uncaughtException", (err) => {
 // ==================== Main ====================
 
 async function main() {
-  log("Bridge starting");
+  log("Bridge starting (bridge-first boot — connecting to control plane immediately)");
 
-  const ready = await waitForOpenCode();
-  if (!ready) {
-    log("OpenCode not ready, starting bridge anyway (will connect when available)");
-  }
-
-  if (ready) {
-    await detectOpenCodeSession();
-  }
-
+  // Connect to control plane immediately — don't wait for OpenCode.
+  // With bridge-first boot order, OpenCode hasn't started yet.
+  // OpenCode session will be detected either:
+  // 1. By checkOpenCodeReady() background check (sends "ready" heartbeat when done)
+  // 2. Lazily on first prompt via handlePrompt → detectOpenCodeSession()
   connect();
 }
 
