@@ -59,23 +59,43 @@ if [ "$SKIP_SECRETS" = false ]; then
     fi
   }
 
-  # Build JSON for wrangler secret bulk
-  SECRETS_JSON=$(cat <<JSONEOF
-{
-  "GITHUB_CLIENT_SECRET": "$(get_tfvar github_client_secret)",
-  "TOKEN_ENCRYPTION_KEY": "$(get_tfvar token_encryption_key)",
-  "REPO_SECRETS_ENCRYPTION_KEY": "$(get_tfvar repo_secrets_encryption_key)",
-  "MODAL_TOKEN_ID": "$(get_tfvar modal_token_id)",
-  "MODAL_TOKEN_SECRET": "$(get_tfvar modal_token_secret)",
-  "MODAL_API_SECRET": "$(get_tfvar modal_api_secret)",
-  "INTERNAL_CALLBACK_SECRET": "$(get_tfvar internal_callback_secret)",
-  "GITHUB_APP_ID": "$(get_tfvar github_app_id)",
-  "GITHUB_APP_INSTALLATION_ID": "$(get_tfvar github_app_installation_id)",
-  "ANTHROPIC_API_KEY": "$(get_tfvar anthropic_api_key)",
-  "OPENAI_API_KEY": "$(get_tfvar openai_api_key)"
+  # Build JSON for wrangler secret bulk using a temp file to avoid
+  # shell interpolation issues with special characters in secret values.
+  SECRETS_TMPFILE=$(mktemp)
+  trap 'rm -f "$SECRETS_TMPFILE"' EXIT
+
+  python3 -c "
+import json, subprocess, sys
+
+def get_tfvar(key):
+    tf_path = '$TF_DIR/terraform.tfvars'
+    with open(tf_path) as f:
+        for line in f:
+            if line.startswith(key):
+                # Single-line value
+                import re
+                m = re.search(r'=\s*\"(.*)\"', line)
+                if m:
+                    return m.group(1)
+    return ''
+
+secrets = {
+    'GITHUB_CLIENT_SECRET': get_tfvar('github_client_secret'),
+    'TOKEN_ENCRYPTION_KEY': get_tfvar('token_encryption_key'),
+    'REPO_SECRETS_ENCRYPTION_KEY': get_tfvar('repo_secrets_encryption_key'),
+    'MODAL_TOKEN_ID': get_tfvar('modal_token_id'),
+    'MODAL_TOKEN_SECRET': get_tfvar('modal_token_secret'),
+    'MODAL_API_SECRET': get_tfvar('modal_api_secret'),
+    'INTERNAL_CALLBACK_SECRET': get_tfvar('internal_callback_secret'),
+    'GITHUB_APP_ID': get_tfvar('github_app_id'),
+    'GITHUB_APP_INSTALLATION_ID': get_tfvar('github_app_installation_id'),
+    'ANTHROPIC_API_KEY': get_tfvar('anthropic_api_key'),
+    'OPENAI_API_KEY': get_tfvar('openai_api_key'),
 }
-JSONEOF
-)
+
+with open('$SECRETS_TMPFILE', 'w') as f:
+    json.dump(secrets, f)
+" || { echo "ERROR: Failed to build secrets JSON"; exit 1; }
 
   # GitHub App private key needs special handling (multi-line)
   GITHUB_APP_KEY=$(get_tfvar github_app_private_key)
@@ -84,12 +104,13 @@ JSONEOF
     echo "[dry-run] Would set 11 secrets + GITHUB_APP_PRIVATE_KEY via wrangler secret bulk"
   else
     cd "$CP_DIR"
-    echo "$SECRETS_JSON" | npx wrangler secret bulk --config wrangler.containers.toml
+    cat "$SECRETS_TMPFILE" | npx wrangler secret bulk --config wrangler.containers.toml
 
     # Set the private key separately (multi-line)
     echo "$GITHUB_APP_KEY" | npx wrangler secret put GITHUB_APP_PRIVATE_KEY --config wrangler.containers.toml
     cd "$ROOT_DIR"
   fi
+  rm -f "$SECRETS_TMPFILE"
 fi
 
 # ==================== Deploy ====================

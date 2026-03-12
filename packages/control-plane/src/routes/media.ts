@@ -70,6 +70,9 @@ async function handleUpload(
   await media.upload(key, body, contentType);
 
   const workerUrl = resolvePublicWorkerUrl(env);
+  if (!workerUrl) {
+    return error("Cannot resolve public URL for uploaded media", 503);
+  }
   const url = `${workerUrl}/api/media/${encodeURIComponent(key)}`;
 
   logger.info("media_uploaded", {

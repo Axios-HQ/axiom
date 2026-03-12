@@ -847,12 +847,16 @@ async function handleMessage(message) {
 
 const healthServer = http.createServer((req, res) => {
   if (req.url === "/health") {
-    const healthy = ws && ws.readyState === WebSocket.OPEN;
+    // Report healthy if WS is open OR actively reconnecting (transient disconnect is normal).
+    // Only report unhealthy if shutdown was requested or ws was never initialized.
+    const wsOpen = ws && ws.readyState === WebSocket.OPEN;
+    const healthy = !shutdownRequested && (wsOpen || reconnectAttempt > 0);
     res.writeHead(healthy ? 200 : 503);
     res.end(
       JSON.stringify({
         status: healthy ? "ok" : "unhealthy",
         bridge: ws ? ws.readyState : "null",
+        reconnecting: !wsOpen && reconnectAttempt > 0,
         opencode_session: opencodeSessionId,
         inflight_message: inflightMessageId,
       })

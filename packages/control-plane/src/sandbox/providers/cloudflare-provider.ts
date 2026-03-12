@@ -52,13 +52,25 @@ export class CloudflareSandboxProvider implements SandboxProvider {
       const id = this.namespace.idFromName(config.sandboxId);
       const stub = this.namespace.get(id);
 
-      const res = await stub.fetch(
-        new Request("http://container/_sandbox/configure", {
-          method: "POST",
-          body: JSON.stringify(env),
-          headers: { "Content-Type": "application/json" },
-        })
-      );
+      // Timeout must exceed the container's internal startAndWaitForPorts timeout (120s)
+      // to avoid orphaned containers that started but whose response was dropped.
+      const CONFIGURE_TIMEOUT_MS = 180_000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONFIGURE_TIMEOUT_MS);
+
+      let res: Response;
+      try {
+        res = await stub.fetch(
+          new Request("http://container/_sandbox/configure", {
+            method: "POST",
+            body: JSON.stringify(env),
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+          })
+        );
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!res.ok) {
         const body = await res.text();
@@ -84,9 +96,6 @@ export class CloudflareSandboxProvider implements SandboxProvider {
   }
 }
 
-/**
- * Create a Cloudflare sandbox provider.
- */
 /**
  * Create a Cloudflare sandbox provider.
  * Extracts LLM API keys from worker env vars to inject into containers

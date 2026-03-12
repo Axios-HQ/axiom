@@ -79,13 +79,21 @@ async function handleUpload(
     ? request.body
     : request.body.pipeThrough(createSizeLimitStream(MAX_TARBALL_SIZE));
 
-  await env.MEDIA_BUCKET.put(key, body, {
-    httpMetadata: { contentType: "application/gzip" },
-    customMetadata: {
-      uploadedAt: new Date().toISOString(),
-      requestId: ctx.request_id,
-    },
-  });
+  try {
+    await env.MEDIA_BUCKET.put(key, body, {
+      httpMetadata: { contentType: "application/gzip" },
+      customMetadata: {
+        uploadedAt: new Date().toISOString(),
+        requestId: ctx.request_id,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("exceeds max size")) {
+      return error("Tarball too large (max 500 MB)", 413);
+    }
+    throw err;
+  }
 
   logger.info("repo_cache.uploaded", {
     event: "repo_cache.uploaded",

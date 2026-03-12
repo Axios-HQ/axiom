@@ -2,7 +2,7 @@ import { tool } from "@opencode-ai/plugin";
 import { z } from "zod";
 import { controlPlaneFetch, extractError } from "./_bridge-client.js";
 import { readFileSync } from "fs";
-import { basename, extname } from "path";
+import { basename, extname, resolve } from "path";
 
 const MIME_MAP = {
   ".png": "image/png",
@@ -29,6 +29,13 @@ export default tool({
     mimeType: z.string().optional().describe("MIME type (auto-detected from extension if omitted)"),
   },
   async execute(args) {
+    // Restrict reads to /home/user and /tmp to prevent reading sensitive system files
+    const ALLOWED_ROOTS = ["/home/user", "/tmp"];
+    const resolved = resolve(args.filePath);
+    if (!ALLOWED_ROOTS.some((root) => resolved.startsWith(root + "/"))) {
+      return `Denied: file path must be under ${ALLOWED_ROOTS.join(" or ")}`;
+    }
+
     const ext = extname(args.filePath).toLowerCase();
     const mime = args.mimeType ?? (MIME_MAP[ext] || "application/octet-stream");
 

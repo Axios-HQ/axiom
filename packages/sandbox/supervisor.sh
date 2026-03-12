@@ -101,8 +101,9 @@ git config --global user.email "open-inspect@noreply.github.com"
 # Configure git for better performance in containers
 git config --global core.compression 0
 git config --global http.postBuffer 524288000
-git config --global http.lowSpeedLimit 0
-git config --global http.lowSpeedTime 999999
+# Fail if transfer drops below 1KB/s for 60s instead of hanging indefinitely
+git config --global http.lowSpeedLimit 1000
+git config --global http.lowSpeedTime 60
 
 # Make gh CLI use our wrapper
 chmod +x /app/sandbox/gh-wrapper.sh 2>/dev/null || true

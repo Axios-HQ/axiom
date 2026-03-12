@@ -52,31 +52,55 @@ function createAuth(d1Database: unknown | null) {
             "User-Agent": "open-inspect",
             Accept: "application/vnd.github+json",
           };
-          const profileRes = await fetch("https://api.github.com/user", { headers });
+          const GITHUB_TIMEOUT_MS = 10_000;
+
+          const profileRes = await fetch("https://api.github.com/user", {
+            headers,
+            signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+          });
           if (!profileRes.ok) return null;
           const profile = (await profileRes.json()) as Record<string, unknown>;
 
           // Try /user/emails if profile has no public email
+          let emailVerified = false;
           if (!profile.email) {
             try {
-              const emailsRes = await fetch("https://api.github.com/user/emails", { headers });
+              const emailsRes = await fetch("https://api.github.com/user/emails", {
+                headers,
+                signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+              });
               if (emailsRes.ok) {
                 const emails = (await emailsRes.json()) as Array<{
                   email: string;
                   primary: boolean;
                   verified: boolean;
                 }>;
-                profile.email = (emails.find((e) => e.primary) ?? emails[0])?.email;
+                const primary = emails.find((e) => e.primary && e.verified);
+                if (primary) {
+                  profile.email = primary.email;
+                  emailVerified = true;
+                } else {
+                  // Fall back to first verified email
+                  const verified = emails.find((e) => e.verified);
+                  if (verified) {
+                    profile.email = verified.email;
+                    emailVerified = true;
+                  }
+                }
               }
             } catch {
               // /user/emails may 403 for GitHub App tokens — fall through
             }
+          } else {
+            // Public email on profile is considered verified by GitHub
+            emailVerified = true;
           }
 
           // Fallback: use noreply email if GitHub doesn't expose a real one.
           // GitHub App OAuth tokens may not have email access.
           if (!profile.email) {
             profile.email = `${profile.id}+${profile.login}@users.noreply.github.com`;
+            emailVerified = false;
           }
 
           return {
@@ -85,7 +109,7 @@ function createAuth(d1Database: unknown | null) {
               name: (profile.name as string) || (profile.login as string) || "",
               email: profile.email as string,
               image: profile.avatar_url as string,
-              emailVerified: true,
+              emailVerified,
             },
             data: profile,
           };
@@ -111,8 +135,12 @@ function createAuth(d1Database: unknown | null) {
         const session = ctx.context.newSession ?? ctx.context.session;
         if (!session?.user) return;
 
+        // Use the GitHub login (stored in data.login during OAuth) for access control,
+        // not the display name which can be anything.
+        const oauthData = ctx.context.socialUser?.data as Record<string, unknown> | undefined;
+        const githubLogin = (oauthData?.login as string) ?? undefined;
         const allowed = checkAccessAllowed(accessConfig, {
-          githubUsername: session.user.name ?? undefined,
+          githubUsername: githubLogin,
           email: session.user.email ?? undefined,
         });
 

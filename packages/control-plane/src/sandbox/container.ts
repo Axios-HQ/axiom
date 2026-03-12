@@ -12,6 +12,9 @@
  */
 import { Container } from "@cloudflare/containers";
 
+/** Timeout for container boot (git clone + npm install can be slow on cold start). */
+const STARTUP_TIMEOUT_MS = 120_000;
+
 export class SandboxContainer extends Container {
   // Default port the sandbox bridge/supervisor listens on for health
   defaultPort = 8080;
@@ -38,15 +41,13 @@ export class SandboxContainer extends Container {
     // Configure endpoint: control plane calls this before starting
     if (url.pathname === "/_sandbox/configure" && request.method === "POST") {
       const env = (await request.json()) as Record<string, string>;
-      // Start the container with these env vars and wait for health check port.
-      // Timeout after 120s — git clone + npm install can take a while on cold start.
       // Only persist env AFTER successful boot so onStart() won't retry broken configs.
       try {
         await this.startAndWaitForPorts({
           startOptions: { envVars: env, enableInternet: true },
           cancellationOptions: {
-            instanceGetTimeoutMS: 120_000,
-            portReadyTimeoutMS: 120_000,
+            instanceGetTimeoutMS: STARTUP_TIMEOUT_MS,
+            portReadyTimeoutMS: STARTUP_TIMEOUT_MS,
           },
         });
       } catch (err) {

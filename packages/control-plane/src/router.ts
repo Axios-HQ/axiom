@@ -117,11 +117,7 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
 /**
  * Routes that do not require authentication.
  */
-const PUBLIC_ROUTES: RegExp[] = [
-  /^\/health$/,
-  /^\/api\/media\/[^/]+$/,
-  /^\/debug\/sessions\/[^/]+$/,
-];
+const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
 
 /**
  * Routes that accept sandbox authentication.
@@ -1041,7 +1037,7 @@ async function handleDebugSession(
   if (env.DB) {
     try {
       const store = new SessionIndexStore(env.DB);
-      const sessionRow = await store.getByIdOrName(sessionId);
+      const sessionRow = await store.get(sessionId);
       d1Data = sessionRow as unknown as Record<string, unknown>;
     } catch {
       d1Data = { error: "failed to read D1" };
