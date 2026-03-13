@@ -1081,7 +1081,7 @@ const EventItem = memo(function EventItem({
 }) {
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const time = new Date(event.timestamp * 1000).toLocaleTimeString();
+  const time = new Date(event.timestamp).toLocaleTimeString();
 
   useEffect(() => {
     return () => {

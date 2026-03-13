@@ -42,7 +42,7 @@ export const ToolCallGroup = memo(
 
     const formatted = formatToolGroup(events);
     const firstEvent = events[0];
-    const time = new Date(firstEvent.timestamp * 1000).toLocaleTimeString([], {
+    const time = new Date(firstEvent.timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });

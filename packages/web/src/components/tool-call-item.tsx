@@ -51,7 +51,7 @@ function ToolIcon({ name }: { name: string | null }) {
 export function ToolCallItem({ event, isExpanded, onToggle, showTime = true }: ToolCallItemProps) {
   const formatted = formatToolCall(event);
   const isApplyPatch = event.tool?.toLowerCase() === "apply_patch";
-  const time = new Date(event.timestamp * 1000).toLocaleTimeString([], {
+  const time = new Date(event.timestamp).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
