@@ -6,7 +6,7 @@ async function createUser(label: string): Promise<string> {
   const userId = `user-secrets-${label}-${crypto.randomUUID()}`;
 
   await env.DB.prepare(
-    `INSERT INTO "user" (id, name, email, email_verified)
+    `INSERT INTO "user" (id, name, email, emailVerified)
      VALUES (?, ?, ?, 1)`
   )
     .bind(userId, `User ${label}`, `${userId}@example.com`)
