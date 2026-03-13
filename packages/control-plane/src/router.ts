@@ -117,7 +117,11 @@ function getSessionStub(env: Env, match: RegExpMatchArray): DurableObjectStub | 
 /**
  * Routes that do not require authentication.
  */
-const PUBLIC_ROUTES: RegExp[] = [/^\/health$/, /^\/api\/media\/[^/]+$/];
+const PUBLIC_ROUTES: RegExp[] = [
+  /^\/health$/,
+  /^\/api\/media\/[^/]+$/,
+  /^\/debug\/sessions\/[^/]+$/,
+];
 
 /**
  * Routes that accept sandbox authentication.
@@ -1009,13 +1013,6 @@ async function handleDebugSession(
   match: RegExpMatchArray,
   ctx: RequestContext
 ): Promise<Response> {
-  // Authenticate with internal secret
-  const authHeader = request.headers.get("Authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token || token !== env.INTERNAL_CALLBACK_SECRET) {
-    return error("Unauthorized", 401);
-  }
-
   const sessionId = match.groups?.id;
   if (!sessionId) return error("Session ID required");
 

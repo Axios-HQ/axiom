@@ -346,6 +346,25 @@ function translatePart(part, delta, messageId, cumulativeText, emittedToolStates
  */
 async function handlePrompt(messageId, content, model, reasoningEffort, attachments) {
   if (!opencodeSessionId) {
+    // With bridge-first boot, OpenCode may not be running yet.
+    // Wait for it to become ready before trying to detect/create a session.
+    log("Waiting for OpenCode before handling prompt...", { messageId });
+    sendEvent({ type: "token", content: "Preparing workspace...", messageId });
+    const ready = await waitForOpenCode();
+    if (!ready) {
+      sendEvent({
+        type: "error",
+        error: "OpenCode failed to start within timeout",
+        messageId,
+      });
+      sendEvent({
+        type: "execution_complete",
+        messageId,
+        success: false,
+        error: "OpenCode failed to start within timeout",
+      });
+      return;
+    }
     opencodeSessionId = await detectOpenCodeSession();
   }
   if (!opencodeSessionId) {
