@@ -1305,8 +1305,11 @@ export class SessionAgent extends Agent<Env> {
 
   private async reconcileSessionStatusAfterExecution(success: boolean): Promise<void> {
     const pendingOrProcessing = this.repository.getPendingOrProcessingCount();
+    // Stay "active" after successful execution so the session accepts follow-up prompts.
+    // Sessions are only marked "completed" by inactivity timeout or explicit user action.
+    // Only transition to "failed" on error with no pending work.
     const nextStatus: SessionStatus =
-      pendingOrProcessing > 0 ? "active" : success ? "completed" : "failed";
+      pendingOrProcessing > 0 ? "active" : success ? "active" : "failed";
     await this.transitionSessionStatus(nextStatus);
   }
 
