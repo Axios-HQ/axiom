@@ -78,6 +78,7 @@ import { SessionSandboxEventProcessor } from "./sandbox-events";
 import { createSessionInternalRoutes } from "./http/routes";
 import { createMessagesHandler, type MessagesHandler } from "./http/handlers/messages.handler";
 import { MessageService } from "./services/message.service";
+import { resolvePublicWorkerUrl } from "../public-worker-url";
 
 /**
  * Timeout for WebSocket authentication (in milliseconds).
@@ -378,7 +379,16 @@ export class SessionAgent extends Agent<Env> {
 
     const cloudflareSandboxBinding = providerName === "cloudflare" ? this.env.SANDBOX : undefined;
 
-    const provider = createSandboxProvider(providerName, { modalClient, cloudflareSandboxBinding });
+    const llmApiKeys = {
+      ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: this.env.OPENAI_API_KEY,
+    };
+
+    const provider = createSandboxProvider(providerName, {
+      modalClient,
+      cloudflareSandboxBinding,
+      llmApiKeys,
+    });
 
     // Storage adapter
     const storage: SandboxStorage = {
@@ -438,7 +448,7 @@ export class SessionAgent extends Agent<Env> {
 
     // Build configuration
     const controlPlaneUrl =
-      this.env.WORKER_URL ||
+      resolvePublicWorkerUrl(this.env) ||
       `https://open-inspect-control-plane.${this.env.CF_ACCOUNT_ID || "workers"}.workers.dev`;
 
     // Resolve sessionId for lifecycle manager logging context
@@ -1785,8 +1795,15 @@ export class SessionAgent extends Agent<Env> {
             status: sandbox.status,
             gitSyncStatus: sandbox.git_sync_status,
             lastHeartbeat: sandbox.last_heartbeat,
+            lastActivity: sandbox.last_activity,
+            lastSpawnError: sandbox.last_spawn_error,
+            lastSpawnErrorAt: sandbox.last_spawn_error_at,
+            createdAt: sandbox.created_at,
+            hasSandboxWs: this.wsManager.getSandboxSocket() !== null,
           }
         : null,
+      processingMessage: this.repository.getProcessingMessage()?.id ?? null,
+      pendingMessages: this.repository.getPendingOrProcessingCount(),
     });
   }
 

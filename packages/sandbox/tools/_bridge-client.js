@@ -1,4 +1,3 @@
-/* global process, fetch */
 const CONTROL_PLANE_URL = process.env.CONTROL_PLANE_URL || "http://localhost:8787";
 const SANDBOX_AUTH_TOKEN = process.env.SANDBOX_AUTH_TOKEN || "";
 const SESSION_ID = process.env.SESSION_ID || "";

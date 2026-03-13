@@ -7,7 +7,6 @@ import { createSandboxProvider } from "./factory";
 import { ModalSandboxProvider } from "./modal-provider";
 import { CloudflareSandboxProvider } from "./cloudflare-provider";
 import type { ModalClient } from "../client";
-import type { CloudflareSandboxBinding } from "./cloudflare-provider";
 
 // ==================== Mock Factories ====================
 
@@ -19,12 +18,14 @@ function createMockModalClient(): ModalClient {
   } as unknown as ModalClient;
 }
 
-function createMockCloudflareBinding(): CloudflareSandboxBinding {
+function createMockCloudflareNamespace(): DurableObjectNamespace {
   return {
-    create: vi.fn(),
+    idFromName: vi.fn(() => ({ toString: () => "do-id-mock" }) as DurableObjectId),
     get: vi.fn(),
-    destroy: vi.fn(),
-  };
+    newUniqueId: vi.fn(),
+    idFromString: vi.fn(),
+    jurisdiction: vi.fn(),
+  } as unknown as DurableObjectNamespace;
 }
 
 // ==================== Tests ====================
@@ -55,7 +56,7 @@ describe("createSandboxProvider", () => {
 
   describe("cloudflare provider", () => {
     it("creates CloudflareSandboxProvider when providerName is 'cloudflare'", () => {
-      const binding = createMockCloudflareBinding();
+      const binding = createMockCloudflareNamespace();
       const provider = createSandboxProvider("cloudflare", {
         cloudflareSandboxBinding: binding,
       });
@@ -71,13 +72,13 @@ describe("createSandboxProvider", () => {
     });
 
     it("reports correct capabilities for cloudflare", () => {
-      const binding = createMockCloudflareBinding();
+      const binding = createMockCloudflareNamespace();
       const provider = createSandboxProvider("cloudflare", {
         cloudflareSandboxBinding: binding,
       });
 
-      expect(provider.capabilities.supportsSnapshots).toBe(true);
-      expect(provider.capabilities.supportsRestore).toBe(true);
+      expect(provider.capabilities.supportsSnapshots).toBe(false);
+      expect(provider.capabilities.supportsRestore).toBe(false);
       expect(provider.capabilities.supportsWarm).toBe(false);
     });
   });

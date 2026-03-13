@@ -15,6 +15,7 @@ import { RepoSecretsStore } from "../db/repo-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
 import { createModalClient } from "../sandbox/client";
 import { createLogger } from "../logger";
+import { resolvePublicWorkerUrl } from "../public-worker-url";
 import type { Env } from "../types";
 import {
   type Route,
@@ -177,7 +178,8 @@ async function handleTriggerBuild(
   if (!env.MODAL_API_SECRET || !env.MODAL_WORKSPACE) {
     return error("Modal configuration not available", 503);
   }
-  if (!env.WORKER_URL) {
+  const workerUrl = resolvePublicWorkerUrl(env);
+  if (!workerUrl) {
     return error("WORKER_URL not configured", 503);
   }
 
@@ -201,7 +203,7 @@ async function handleTriggerBuild(
     });
 
     // Construct callback URL
-    const callbackUrl = `${env.WORKER_URL}/repo-images/build-complete`;
+    const callbackUrl = `${workerUrl}/repo-images/build-complete`;
 
     // Best-effort: fetch user secrets for the build sandbox
     let userEnvVars: Record<string, string> | undefined;

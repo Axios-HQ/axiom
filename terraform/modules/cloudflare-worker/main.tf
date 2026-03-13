@@ -111,6 +111,7 @@ resource "cloudflare_worker_version" "this" {
     old_tag            = var.migration_old_tag
     new_tag            = var.migration_tag
     new_sqlite_classes = length(var.new_sqlite_classes) > 0 ? var.new_sqlite_classes : [for do in var.durable_objects : do.class_name]
+    renamed_classes    = length(var.renamed_classes) > 0 ? [for rc in var.renamed_classes : { from = rc.from, to = rc.to }] : null
   } : null
 }
 

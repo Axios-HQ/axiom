@@ -104,6 +104,29 @@ export default tseslint.config(
     },
   },
 
+  // Sandbox JS files (Node.js runtime inside Docker containers)
+  {
+    files: ["packages/sandbox/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+
   // Test files configuration
   {
     files: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}"],

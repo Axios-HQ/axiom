@@ -10,7 +10,6 @@ import type {
   ParticipantRole,
   SessionStatus,
 } from "@open-inspect/shared";
-import type { CloudflareSandboxBinding } from "./sandbox/providers/cloudflare-provider";
 
 export type {
   ArtifactType,
@@ -51,7 +50,7 @@ export interface Env {
   SCHEDULER?: DurableObjectNamespace; // SchedulerDO for automation engine
 
   // Cloudflare Sandbox SDK binding (optional — only when sandbox_provider == "cloudflare")
-  SANDBOX?: CloudflareSandboxBinding;
+  SANDBOX?: DurableObjectNamespace;
 
   // D1 database
   DB: D1Database;
@@ -81,6 +80,10 @@ export interface Env {
   IDENTITY_LINK_SYNC_DOMAIN?: string; // Domain allowlist for identity sync (default: axioshq.com)
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
   MODAL_WORKSPACE?: string; // Modal workspace name (used in Modal endpoint URLs)
+
+  // LLM API keys (injected into sandbox env vars, mirrors Modal's llm-api-keys secret)
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
 
   // Sandbox provider selection
   SANDBOX_PROVIDER?: string; // "modal" | "cloudflare" (default: "modal")
