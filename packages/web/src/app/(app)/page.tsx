@@ -126,7 +126,7 @@ export default function Home() {
 
     setIsCreatingSession(true);
     const [owner, name] = selectedRepo.split("/");
-    const currentConfig = { repo: selectedRepo, model: selectedModel };
+    const currentConfig = { repo: selectedRepo, model: selectedModel, branch: selectedBranch };
     pendingConfigRef.current = currentConfig;
 
     const abortController = new AbortController();

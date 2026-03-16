@@ -10,7 +10,7 @@ import { buildSessionsPageKey, SIDEBAR_SESSIONS_KEY } from "@/lib/session-list";
 
 expect.extend(matchers);
 
-vi.mock("next-auth/react", () => ({
+vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({
     data: {
       user: {
