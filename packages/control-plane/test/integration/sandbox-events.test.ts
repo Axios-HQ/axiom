@@ -150,8 +150,9 @@ describe("POST /internal/sandbox-event", () => {
     expect(messages[0].status).toBe("completed");
     expect(messages[0].completed_at).toEqual(expect.any(Number));
 
+    // Session stays "active" after successful execution to allow follow-up prompts
     const sessions = await queryDO<{ status: string }>(stub, "SELECT status FROM session LIMIT 1");
-    expect(sessions[0].status).toBe("completed");
+    expect(sessions[0].status).toBe("active");
   });
 
   it("execution_complete with success=false marks message as failed", async () => {
