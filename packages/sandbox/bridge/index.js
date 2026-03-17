@@ -672,6 +672,15 @@ function processSSEEvent(
   if (eventType === "session.idle") {
     const idleSessionId = props.sessionID;
     if (idleSessionId === opencodeSessionId) {
+      // Guard: only accept idle as completion if we've seen at least one
+      // assistant message for this prompt. On SSE connect, OpenCode may replay
+      // a stale session.idle from the previous execution before our new prompt
+      // has started processing — exiting here would cause an instant
+      // "Execution complete" with no work done.
+      if (allowedAssistantMsgIds.size === 0) {
+        log("Ignoring stale session.idle (no assistant messages seen yet)");
+        return { events, done: false };
+      }
       log("Session idle, prompt complete");
       return { events, done: true };
     }

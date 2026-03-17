@@ -1207,6 +1207,18 @@ class AgentBridge:
                                     idle_session_id = props.get("sessionID")
                                     # Only parent idle terminates the stream
                                     if idle_session_id == self.opencode_session_id:
+                                        # Guard: only accept idle as completion
+                                        # if we've seen at least one assistant
+                                        # message for this prompt.  On SSE
+                                        # connect, OpenCode may replay a stale
+                                        # session.idle from the previous
+                                        # execution before the new prompt starts.
+                                        if not allowed_assistant_msg_ids:
+                                            self.log.debug(
+                                                "bridge.session_idle_ignored",
+                                                reason="no_assistant_messages_yet",
+                                            )
+                                            continue
                                         elapsed = time.time() - start_time
                                         self.log.debug(
                                             "bridge.session_idle",
@@ -1223,29 +1235,10 @@ class AgentBridge:
                                             yield final_event
                                         return
 
-                                elif event_type == "session.status":
-                                    status_session_id = props.get("sessionID")
-                                    status = props.get("status", {})
-                                    # Only parent status=idle terminates the stream
-                                    if (
-                                        status_session_id == self.opencode_session_id
-                                        and status.get("type") == "idle"
-                                    ):
-                                        elapsed = time.time() - start_time
-                                        self.log.debug(
-                                            "bridge.session_status_idle",
-                                            elapsed_s=round(elapsed, 1),
-                                            tracked_msgs=len(allowed_assistant_msg_ids),
-                                        )
-                                        async for final_event in self._fetch_final_message_state(
-                                            message_id,
-                                            opencode_message_id,
-                                            cumulative_text,
-                                            allowed_assistant_msg_ids,
-                                            compaction_occurred=compaction_occurred,
-                                        ):
-                                            yield final_event
-                                        return
+                                # session.status with type=idle is NOT handled.
+                                # OpenCode sends it as current state on SSE
+                                # connect, which causes premature exit on
+                                # subsequent prompts.
 
                                 elif event_type == "session.error":
                                     error_session_id = props.get("sessionID")
