@@ -474,6 +474,19 @@ class TestSSEStreaming:
                 "session.status",
                 {"sessionID": "oc-session-123", "status": {"type": "idle"}},
             ),
+            # Text AFTER session.status idle — proves stream was not terminated
+            create_sse_event(
+                "message.part.updated",
+                {
+                    "part": {
+                        "type": "text",
+                        "id": "part-1",
+                        "sessionID": "oc-session-123",
+                        "messageID": "oc-msg-1",
+                        "text": "Response continued",
+                    }
+                },
+            ),
             # The real completion signal
             create_sse_event("session.idle", {"sessionID": "oc-session-123"}),
         ]
@@ -482,8 +495,10 @@ class TestSSEStreaming:
         async for event in bridge._stream_opencode_response_sse("cp-msg-1", "Test prompt"):
             events.append(event)
 
-        assert len(events) == 1
-        assert events[0]["type"] == "token"
+        token_events = [e for e in events if e["type"] == "token"]
+        assert len(token_events) == 2
+        assert token_events[0]["content"] == "Response"
+        assert token_events[1]["content"] == "Response continued"
 
     @pytest.mark.asyncio
     async def test_stale_session_idle_ignored_before_assistant_messages(
