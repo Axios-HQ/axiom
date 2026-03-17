@@ -260,6 +260,8 @@ jobs:
     needs: [validate, check-secrets]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has-secrets == 'true'
     environment: production
+    env:
+      SANDBOX_PROVIDER: ${{ secrets.SANDBOX_PROVIDER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -347,7 +349,7 @@ jobs:
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
       - name: Deploy Cloudflare Containers
-        if: success() && (secrets.SANDBOX_PROVIDER == 'cloudflare' || vars.SANDBOX_PROVIDER == 'cloudflare')
+        if: success() && (env.SANDBOX_PROVIDER == 'cloudflare' || vars.SANDBOX_PROVIDER == 'cloudflare')
         run: npx wrangler deploy --config wrangler.containers.toml
         working-directory: packages/control-plane
         env:
