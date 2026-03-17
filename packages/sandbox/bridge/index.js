@@ -705,6 +705,7 @@ function processSSEEvent(
         error: errorMsg || "Unknown error",
         messageId,
       });
+      return { events, done: true };
     }
     return { events, done: false };
   }
