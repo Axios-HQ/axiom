@@ -12,6 +12,7 @@ on:
       - "packages/linear-bot/**"
       - "packages/modal-infra/**"
       - "packages/shared/**"
+      - "packages/sandbox/**" # Sandbox bridge + Dockerfile for Cloudflare Containers
       - "packages/web/**" # Web app deployed via Terraform when web_platform = "cloudflare"
       - ".github/workflows/terraform.yml"
   pull_request:
@@ -25,6 +26,7 @@ on:
       - "packages/linear-bot/**"
       - "packages/modal-infra/**"
       - "packages/shared/**"
+      - "packages/sandbox/**"
       - "packages/web/**"
       - ".github/workflows/terraform.yml"
   workflow_dispatch: # Allow manual trigger
@@ -258,6 +260,8 @@ jobs:
     needs: [validate, check-secrets]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has-secrets == 'true'
     environment: production
+    env:
+      SANDBOX_PROVIDER: ${{ secrets.SANDBOX_PROVIDER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -343,6 +347,14 @@ jobs:
           TF_VAR_enable_durable_object_bindings: "${{ secrets.ENABLE_DURABLE_OBJECT_BINDINGS || 'true' }}"
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+      - name: Deploy Cloudflare Containers
+        if: success() && (env.SANDBOX_PROVIDER == 'cloudflare' || vars.SANDBOX_PROVIDER == 'cloudflare')
+        run: npx wrangler deploy --config wrangler.containers.toml
+        working-directory: packages/control-plane
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Post Apply Results
         if: always()

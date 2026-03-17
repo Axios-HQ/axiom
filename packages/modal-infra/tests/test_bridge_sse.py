@@ -432,10 +432,16 @@ class TestSSEStreaming:
         assert token_events[0]["content"] == "Our response"
 
     @pytest.mark.asyncio
-    async def test_completion_on_session_status_idle(
+    async def test_session_status_idle_not_handled(
         self, bridge: AgentBridge, opencode_message_id: str
     ):
-        """Should complete on session.status with type=idle."""
+        """session.status with type=idle should NOT terminate the stream.
+
+        OpenCode sends session.status idle as current state when an SSE
+        connection is opened. If the bridge treated it as a completion signal,
+        follow-up prompts would exit immediately with no work done.  Only
+        session.idle (the transition event) should terminate.
+        """
         http_client = bridge.http_client
 
         http_client.sse_events = [
@@ -463,18 +469,91 @@ class TestSSEStreaming:
                     }
                 },
             ),
+            # session.status idle — should be ignored, stream continues
             create_sse_event(
                 "session.status",
                 {"sessionID": "oc-session-123", "status": {"type": "idle"}},
             ),
+            # Text AFTER session.status idle — proves stream was not terminated
+            create_sse_event(
+                "message.part.updated",
+                {
+                    "part": {
+                        "type": "text",
+                        "id": "part-1",
+                        "sessionID": "oc-session-123",
+                        "messageID": "oc-msg-1",
+                        "text": "Response continued",
+                    }
+                },
+            ),
+            # The real completion signal
+            create_sse_event("session.idle", {"sessionID": "oc-session-123"}),
         ]
 
         events = []
         async for event in bridge._stream_opencode_response_sse("cp-msg-1", "Test prompt"):
             events.append(event)
 
-        assert len(events) == 1
-        assert events[0]["type"] == "token"
+        token_events = [e for e in events if e["type"] == "token"]
+        assert len(token_events) == 2
+        assert token_events[0]["content"] == "Response"
+        assert token_events[1]["content"] == "Response continued"
+
+    @pytest.mark.asyncio
+    async def test_stale_session_idle_ignored_before_assistant_messages(
+        self, bridge: AgentBridge, opencode_message_id: str
+    ):
+        """Stale session.idle before any assistant messages should be ignored.
+
+        When a follow-up prompt opens a new SSE connection, OpenCode may replay
+        session.idle from the previous execution before the new prompt starts
+        processing.  The bridge must not treat this as completion — otherwise
+        multi-turn conversations break (instant 'Execution complete' with no
+        work done).
+        """
+        http_client = bridge.http_client
+
+        http_client.sse_events = [
+            create_sse_event("server.connected", {}),
+            # Stale idle — no assistant messages tracked yet, must be ignored
+            create_sse_event("session.idle", {"sessionID": "oc-session-123"}),
+            # Now the real work begins
+            create_sse_event(
+                "message.updated",
+                {
+                    "info": {
+                        "id": "oc-msg-1",
+                        "role": "assistant",
+                        "sessionID": "oc-session-123",
+                        "parentID": opencode_message_id,
+                    }
+                },
+            ),
+            create_sse_event(
+                "message.part.updated",
+                {
+                    "part": {
+                        "type": "text",
+                        "id": "part-1",
+                        "sessionID": "oc-session-123",
+                        "messageID": "oc-msg-1",
+                        "text": "Hello from follow-up",
+                    }
+                },
+            ),
+            # Real idle after work is done — should terminate
+            create_sse_event("session.idle", {"sessionID": "oc-session-123"}),
+        ]
+
+        events = []
+        async for event in bridge._stream_opencode_response_sse("cp-msg-1", "Follow-up prompt"):
+            events.append(event)
+
+        # Should have received the token event (stale idle was skipped)
+        token_events = [e for e in events if e["type"] == "token"]
+        assert len(token_events) == 1
+        assert token_events[0]["content"] == "Hello from follow-up"
 
     @pytest.mark.asyncio
     async def test_handles_session_error(self, bridge: AgentBridge):
