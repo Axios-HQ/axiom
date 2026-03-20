@@ -371,8 +371,7 @@ function HomeContent({
               src="/axiom-logo.svg"
               alt="Axiom"
               width={400}
-              height={134}
-              className="mx-auto mb-4 dark:opacity-90"
+              className="mx-auto mb-4 text-foreground"
             />
             <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Axiom</h1>
             {isAuthenticated ? (
