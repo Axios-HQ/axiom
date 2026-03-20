@@ -367,13 +367,7 @@ function HomeContent({
         <div className="w-full max-w-2xl">
           {/* Welcome text */}
           <div className="text-center mb-8">
-            <img
-              src="/axiom-logo.svg"
-              alt="Axiom"
-              width={400}
-              height={134}
-              className="mx-auto mb-4 dark:opacity-90"
-            />
+            <img src="/axiom-logo.svg" alt="Axiom" width={400} className="mx-auto mb-4" />
             <h1 className="text-3xl font-semibold text-foreground mb-2">Welcome to Axiom</h1>
             {isAuthenticated ? (
               <p className="text-muted-foreground">
