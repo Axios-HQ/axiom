@@ -13,7 +13,8 @@ const logger = createLogger("worker");
 // Re-export Durable Objects for Cloudflare to discover
 export { SessionAgent } from "./session/durable-object";
 export { SchedulerDO } from "./scheduler/durable-object";
-export { SandboxContainer } from "./sandbox/container";
+// SandboxContainer is exported from index.containers.ts (used by wrangler.containers.toml)
+// to avoid bundling @cloudflare/containers in the standard Terraform-managed worker.
 
 /**
  * Worker fetch handler.
