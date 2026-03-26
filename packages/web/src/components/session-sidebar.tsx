@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useSession, signOut } from "@/lib/auth-client";
 import useSWR, { useSWRConfig } from "swr";
 import { formatRelativeTime, isInactiveSession } from "@/lib/time";
+import {
+  buildSessionsPageKey,
+  mergeUniqueSessions,
+  SIDEBAR_SESSIONS_KEY,
+  type SessionListResponse,
+} from "@/lib/session-list";
 import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-media-query";
 import {
@@ -45,6 +51,13 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
   const { data: authSession } = useSession();
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState("");
+  const [extraSessions, setExtraSessions] = useState<SessionItem[]>([]);
+  const [hasMorePages, setHasMorePages] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const offsetRef = useRef(0);
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
   const isMobile = useIsMobile();
 
   const { mutate } = useSWRConfig();
@@ -66,10 +79,91 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
     });
   }, []);
 
-  const { data, isLoading: loading } = useSWR<{ sessions: SessionItem[] }>(
-    authSession ? "/api/sessions" : null
+  const { data, isLoading: loading } = useSWR<SessionListResponse>(
+    authSession ? SIDEBAR_SESSIONS_KEY : null
   );
-  const sessions = useMemo(() => data?.sessions ?? [], [data]);
+  const firstPageSessions = useMemo(() => data?.sessions ?? [], [data?.sessions]);
+
+  // Track data reference to clear extraSessions synchronously during render,
+  // preventing one frame of stale extra sessions after SWR revalidation.
+  const prevDataRef = useRef(data);
+  let effectiveExtraSessions = extraSessions;
+  if (prevDataRef.current !== data) {
+    prevDataRef.current = data;
+    effectiveExtraSessions = [];
+  }
+
+  useEffect(() => {
+    if (!data) return;
+
+    setExtraSessions([]);
+    setHasMorePages(data.hasMore);
+    setLoadingMore(false);
+    offsetRef.current = firstPageSessions.length;
+    hasMoreRef.current = data.hasMore;
+    loadingMoreRef.current = false;
+  }, [data, firstPageSessions.length]);
+
+  const loadMoreSessions = useCallback(async () => {
+    if (!authSession || loadingMoreRef.current || !hasMoreRef.current) return;
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const response = await fetch(
+        buildSessionsPageKey({ excludeStatus: "archived", offset: offsetRef.current })
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch additional sessions: ${response.status}`);
+      }
+
+      const page: SessionListResponse = await response.json();
+      const fetched = page.sessions ?? [];
+
+      setExtraSessions((prev) => mergeUniqueSessions(prev, fetched));
+      setHasMorePages(page.hasMore);
+      offsetRef.current += fetched.length;
+      hasMoreRef.current = page.hasMore;
+    } catch (error) {
+      console.error("Failed to fetch additional sessions:", error);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [authSession]);
+
+  const maybeLoadMoreSessions = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 96;
+    if (nearBottom) {
+      void loadMoreSessions();
+    }
+  }, [loadMoreSessions]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || loading || loadingMore || !hasMorePages) return;
+
+    if (container.clientHeight > 0 && container.scrollHeight <= container.clientHeight) {
+      void loadMoreSessions();
+    }
+  }, [
+    hasMorePages,
+    loading,
+    loadingMore,
+    loadMoreSessions,
+    firstPageSessions.length,
+    extraSessions.length,
+  ]);
+
+  const sessions = useMemo(
+    () => mergeUniqueSessions(firstPageSessions, effectiveExtraSessions),
+    [firstPageSessions, effectiveExtraSessions]
+  );
 
   const handleRename = useCallback(
     async (sessionId: string, newTitle: string) => {
@@ -232,27 +326,7 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
           >
             <SettingsIcon className="w-4 h-4" />
           </Link>
-          {authSession?.user?.image ? (
-            <button
-              onClick={() => signOut()}
-              className="w-7 h-7 rounded-full overflow-hidden"
-              title={`Signed in as ${authSession.user.name}\nClick to sign out`}
-            >
-              <img
-                src={authSession.user.image}
-                alt={authSession.user.name || "User"}
-                className="w-full h-full object-cover"
-              />
-            </button>
-          ) : (
-            <button
-              onClick={() => signOut()}
-              className="w-7 h-7 rounded-full bg-card flex items-center justify-center text-xs font-medium text-foreground"
-              title="Sign out"
-            >
-              {authSession?.user?.name?.charAt(0).toUpperCase() || "?"}
-            </button>
-          )}
+          <UserMenu user={authSession?.user} />
         </div>
       </div>
 
@@ -283,7 +357,11 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
       </div>
 
       {/* Session List */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={maybeLoadMoreSessions}
+      >
         {loading ? (
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-muted-foreground" />
@@ -369,10 +447,110 @@ export function SessionSidebar({ onNewSession, onToggle, onSessionSelect }: Sess
                 ))}
               </>
             )}
+
+            {loadingMore && (
+              <div className="flex justify-center py-3">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-muted-foreground" />
+              </div>
+            )}
           </>
         )}
       </div>
     </aside>
+  );
+}
+
+function UserMenu({ user }: { user?: { name?: string | null; image?: string | null } | null }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  function toggle() {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+      });
+    }
+    setOpen((v) => !v);
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-7 h-7 rounded-full overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary"
+        title={`Signed in as ${user?.name || "User"}`}
+      >
+        {user?.image ? (
+          <img src={user.image} alt={user.name || "User"} className="w-full h-full object-cover" />
+        ) : (
+          <span className="w-full h-full rounded-full bg-card flex items-center justify-center text-xs font-medium text-foreground">
+            {user?.name?.charAt(0).toUpperCase() || "?"}
+          </span>
+        )}
+      </button>
+      {open && menuPos && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed w-48 rounded-md border border-border bg-background shadow-lg py-1 z-[100]"
+          style={{ top: menuPos.top, left: Math.min(menuPos.left, window.innerWidth - 200) }}
+        >
+          <div className="px-3 py-2 border-b border-border">
+            <p className="text-sm font-medium text-foreground truncate">{user?.name || "User"}</p>
+          </div>
+          <button
+            role="menuitem"
+            onClick={() => signOut()}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3l3-3m0 0l-3-3m3 3H9"
+              />
+            </svg>
+            Sign out
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
