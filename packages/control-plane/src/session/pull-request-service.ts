@@ -40,6 +40,32 @@ export type CreatePullRequestResult =
 export type PushBranchResult = { success: true } | { success: false; error: string };
 
 /**
+ * PR policy configuration resolved from integration/repo settings.
+ * All fields are optional — missing or undefined means no enforcement.
+ */
+export interface PrPolicy {
+  /**
+   * Regex pattern that the PR title must match.
+   * Example: "^(feat|fix|chore|docs|refactor|test)(\\(.+\\))?: .+"
+   */
+  prTitleRegex?: string | null;
+  /**
+   * Human-readable example of a valid title shown in rejection errors.
+   */
+  prTitleExample?: string | null;
+  /**
+   * When true, PR creation is blocked if no screenshot artifact exists and
+   * the changed files include paths matching uiFileGlobs.
+   */
+  requireScreenshotForUiChanges?: boolean;
+  /**
+   * Glob patterns used to detect UI file changes.
+   * Defaults to common UI patterns when requireScreenshotForUiChanges is true.
+   */
+  uiFileGlobs?: string[];
+}
+
+/**
  * Session persistence operations required by pull request orchestration.
  */
 export interface PullRequestRepository {
@@ -48,7 +74,7 @@ export interface PullRequestRepository {
   listArtifacts(): ArtifactRow[];
   createArtifact(data: {
     id: string;
-    type: "pr" | "branch";
+    type: "pr" | "branch" | "screenshot";
     url: string | null;
     metadata: string | null;
     createdAt: number;
@@ -63,13 +89,55 @@ export interface PullRequestServiceDeps {
   sourceControlProvider: SourceControlProvider;
   log: Logger;
   generateId: () => string;
-  pushBranchToRemote: (headBranch: string, pushSpec: GitPushSpec) => Promise<PushBranchResult>;
+  pushBranchToRemote: (
+    headBranch: string,
+    pushSpec: GitPushSpec,
+    baseBranch?: string
+  ) => Promise<PushBranchResult>;
   broadcastArtifactCreated: (artifact: {
     id: string;
     type: "pr" | "branch";
     url: string;
     prNumber?: number;
   }) => void;
+  /** Optional PR policy resolved for the target repo. */
+  prPolicy?: PrPolicy | null;
+}
+
+/**
+ * Validates a PR title against the policy regex.
+ * Returns null when valid, or an error string when invalid.
+ */
+export function validatePrTitle(title: string, policy: PrPolicy): string | null {
+  if (!policy.prTitleRegex) return null;
+
+  let regex: RegExp;
+  try {
+    regex = new RegExp(policy.prTitleRegex);
+  } catch {
+    // Misconfigured regex — don't block PR creation
+    return null;
+  }
+
+  if (!regex.test(title)) {
+    const example = policy.prTitleExample ? ` Example: "${policy.prTitleExample}"` : "";
+    return `PR title does not match the required format (pattern: ${policy.prTitleRegex}).${example}`;
+  }
+  return null;
+}
+
+/**
+ * Builds a Markdown Verification section from screenshot artifact URLs.
+ */
+function buildVerificationSection(screenshotUrls: string[]): string {
+  if (screenshotUrls.length === 0) return "";
+
+  const lines = ["", "---", "### Verification", ""];
+  screenshotUrls.forEach((url, i) => {
+    lines.push(`![Screenshot ${i + 1}](${url})`);
+    lines.push("");
+  });
+  return lines.join("\n");
 }
 
 /**
@@ -104,6 +172,19 @@ export class SessionPullRequestService {
     this.deps.log.info("Creating PR", { user_id: input.promptingUserId });
 
     try {
+      // --- C) PR title policy validation ---
+      const policy = this.deps.prPolicy;
+      if (policy?.prTitleRegex) {
+        const titleError = validatePrTitle(input.title, policy);
+        if (titleError) {
+          this.deps.log.warn("pr.title_policy_rejected", {
+            title: input.title,
+            regex: policy.prTitleRegex,
+          });
+          return { kind: "error", status: 400, error: titleError };
+        }
+      }
+
       const sessionId = session.session_name || session.id;
       const generatedHeadBranch = generateBranchName(sessionId);
 
@@ -114,6 +195,24 @@ export class SessionPullRequestService {
           kind: "error",
           status: 409,
           error: "A pull request has already been created for this session.",
+        };
+      }
+
+      // --- B) Screenshot policy enforcement ---
+      // Collect screenshot artifacts for PR body injection and policy checks.
+      const screenshotArtifacts = initialArtifacts.filter((a) => a.type === "screenshot" && a.url);
+      const screenshotUrls = screenshotArtifacts.map((a) => a.url as string);
+
+      if (policy?.requireScreenshotForUiChanges && screenshotUrls.length === 0) {
+        this.deps.log.warn("pr.screenshot_policy_rejected", {
+          session_id: session.id,
+        });
+        return {
+          kind: "error",
+          status: 400,
+          error:
+            "PR creation blocked: this repository requires screenshot evidence for UI changes. " +
+            "Use the send-update tool with a screenshotPath to capture proof-of-work before creating the PR.",
         };
       }
 
@@ -169,7 +268,7 @@ export class SessionPullRequestService {
         force: true,
       });
 
-      const pushResult = await this.deps.pushBranchToRemote(headBranch, pushSpec);
+      const pushResult = await this.deps.pushBranchToRemote(headBranch, pushSpec, baseBranch);
       if (!pushResult.success) {
         return { kind: "error", status: 500, error: pushResult.error };
       }
@@ -191,9 +290,19 @@ export class SessionPullRequestService {
       const prAuth = input.promptingAuth ?? appAuth;
 
       const requesterIdentity = this.formatRequesterIdentity(input);
+
+      // Build the PR body: user body + verification screenshots + footer
+      const verificationSection = buildVerificationSection(screenshotUrls);
       const fullBody =
         input.body +
+        verificationSection +
         `\n\n---\nRequested by ${requesterIdentity}\n\n*Created with [Open-Inspect](${input.sessionUrl})*`;
+
+      if (screenshotUrls.length > 0) {
+        this.deps.log.info("pr.screenshot_evidence_appended", {
+          screenshot_count: screenshotUrls.length,
+        });
+      }
 
       const reviewers =
         prAuth.authType === "app" && input.promptingScmLogin
@@ -232,6 +341,7 @@ export class SessionPullRequestService {
           base: baseBranch,
           authMode,
           oauthSignInRequired,
+          screenshotCount: screenshotUrls.length,
         }),
         createdAt: now,
       });

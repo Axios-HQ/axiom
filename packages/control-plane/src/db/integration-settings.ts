@@ -215,6 +215,33 @@ export class IntegrationSettingsStore {
       throw new IntegrationSettingsValidationError("commentActionInstructions must be a string");
     }
 
+    if (settings.prTitleRegex !== undefined && typeof settings.prTitleRegex !== "string") {
+      throw new IntegrationSettingsValidationError("prTitleRegex must be a string");
+    }
+
+    if (settings.prTitleRegex) {
+      try {
+        new RegExp(settings.prTitleRegex);
+      } catch {
+        throw new IntegrationSettingsValidationError(
+          `prTitleRegex is not a valid regular expression: ${settings.prTitleRegex}`
+        );
+      }
+    }
+
+    if (settings.prTitleExample !== undefined && typeof settings.prTitleExample !== "string") {
+      throw new IntegrationSettingsValidationError("prTitleExample must be a string");
+    }
+
+    if (
+      settings.requireScreenshotForUiChanges !== undefined &&
+      typeof settings.requireScreenshotForUiChanges !== "boolean"
+    ) {
+      throw new IntegrationSettingsValidationError(
+        "requireScreenshotForUiChanges must be a boolean"
+      );
+    }
+
     if (settings.allowedTriggerUsers !== undefined) {
       if (
         !Array.isArray(settings.allowedTriggerUsers) ||
