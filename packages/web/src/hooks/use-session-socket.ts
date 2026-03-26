@@ -142,16 +142,11 @@ function mergeArtifactsById(existing: Artifact[], incoming: Artifact[]): Artifac
 
   for (const artifact of incoming) {
     const current = byId.get(artifact.id);
-    if (!current) {
-      byId.set(artifact.id, artifact);
-      continue;
-    }
-
     byId.set(artifact.id, {
-      ...artifact,
       ...current,
-      metadata: current.metadata ?? artifact.metadata,
-      createdAt: current.createdAt ?? artifact.createdAt,
+      ...artifact,
+      metadata: artifact.metadata ?? current?.metadata,
+      createdAt: artifact.createdAt ?? current?.createdAt,
     });
   }
 
@@ -268,6 +263,8 @@ export function useSessionSocket(sessionId: string): UseSessionSocketReturn {
         case "subscribed": {
           console.log("WebSocket subscribed to session");
           subscribedRef.current = true;
+          // Clear existing state since we're about to receive fresh history
+          setArtifacts([]);
           void hydrateArtifacts();
           pendingTextRef.current = null;
           if (data.state) {
